@@ -250,10 +250,10 @@ Usage:
   tokenwatch [--claude-glob <glob>] [--codex-db <path>] [--topic <name>] [--daily-budget <amount>] [--weekly-budget <amount>]
 
 Options:
-  export               Write Markdown and/or CSV reports for the current session without launching the TUI
+  export               Write Markdown and/or CSV reports for the most recent session without launching the TUI
   --md                 With export, write only the Markdown report unless --csv is also present
   --csv                With export, write only the CSV report unless --md is also present
-  --out <dir>          With export, write reports to this directory. Default: current directory
+  --out <dir>          With export, write reports to this directory. Default: ./tokenwatch-exports
   --claude-glob <glob>  Claude Code JSONL glob. Default: auto-detect from $CLAUDE_HOME or ~/.claude
   --codex-db <path>     Codex CLI SQLite database. Default: auto-detect from $CODEX_HOME or ~/.codex
   --topic <name>        Manually tag every parsed prompt in this session with the given topic

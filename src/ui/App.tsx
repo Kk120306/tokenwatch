@@ -60,6 +60,20 @@ interface FilterOverlayState {
 const BAR_WIDTH = 44;
 const STALE_AFTER_MS = 30_000;
 const SHORTCUTS = "[1] Prompts  [2] Models  [3] Stats  [r] Recs  [g] Cache sort  [w] Context sort  [f] Models  [t] Topics  [c] Tokens  [q] Quit";
+const LOGO = `
+  ████████╗ ██████╗ ██╗  ██╗███████╗███╗  ██╗
+     ██╔══╝██╔═══██╗██║ ██╔╝██╔════╝████╗ ██║
+     ██║   ██║   ██║█████╔╝ █████╗  ██╔██╗██║
+     ██║   ██║   ██║██╔═██╗ ██╔══╝  ██║╚████║
+     ██║   ╚██████╔╝██║  ██╗███████╗██║ ╚███║
+     ╚═╝    ╚═════╝ ╚═╝  ╚═╝╚══════╝╚═╝  ╚══╝
+  ██╗    ██╗ █████╗ ████████╗ ██████╗██╗  ██╗
+  ██║    ██║██╔══██╗╚══██╔══╝██╔════╝██║  ██║
+  ██║ █╗ ██║███████║   ██║   ██║     ███████║
+  ██║███╗██║██╔══██║   ██║   ██║     ██╔══██║
+  ╚███╔███╔╝██║  ██║   ██║   ╚██████╗██║  ██║
+   ╚══╝╚══╝ ╚═╝  ╚═╝   ╚═╝    ╚═════╝╚═╝  ╚═╝
+`.trimEnd();
 
 export default function App({
   turns,
@@ -317,13 +331,24 @@ function BudgetHeader({
 
 function Onboarding({ detectionSummary }: { detectionSummary: StorageDetectionSummary | null }): React.JSX.Element {
   return (
-    <Box flexDirection="column" marginTop={2}>
+    <Box flexDirection="column">
+      <Logo />
       <Text bold>  tokenwatch is ready</Text>
       <Text dimColor>  ─────────────────────────────────────────</Text>
       <Text>{formatDetection("Claude Code", detectionSummary?.claude)}</Text>
       <Text>{formatDetection("Codex CLI", detectionSummary?.codex)}</Text>
       <Text> </Text>
       <Text>  Send a prompt in your AI CLI to see usage appear here.</Text>
+    </Box>
+  );
+}
+
+function Logo(): React.JSX.Element {
+  return (
+    <Box flexDirection="column" marginTop={1} marginBottom={1}>
+      {LOGO.split("\n").map((line, index) => (
+        <Text key={index} color="cyan">{line}</Text>
+      ))}
     </Box>
   );
 }

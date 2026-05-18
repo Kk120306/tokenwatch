@@ -159,6 +159,9 @@ test("Claude JSONL watcher tails from startup offset and ignores historical turn
       logger: () => {}
     });
 
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    assert.deepEqual(turns, []);
+
     await appendFile(path, [
       JSON.stringify({ type: "user", message: { content: "new prompt" } }),
       JSON.stringify({ type: "assistant", message: { model: "claude-sonnet-4-6", usage: { input_tokens: 200, output_tokens: 20 } } }),
@@ -171,6 +174,88 @@ test("Claude JSONL watcher tails from startup offset and ignores historical turn
       inputTokens: 200,
       cachedInputTokens: 0,
       outputTokens: 20,
+      reasoningTokens: 0
+    });
+  } finally {
+    await watcher?.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("Claude JSONL watcher starts empty when restarted with existing session turns", async () => {
+  const dir = join(tmpdir(), `tokenwatch-restart-${Date.now()}`);
+  const path = join(dir, "session.jsonl");
+  const codexDbPath = join(dir, "logs_2.sqlite");
+
+  try {
+    await mkdir(dir, { recursive: true });
+    createEmptyCodexLogs(codexDbPath);
+    await writeFile(path, [
+      JSON.stringify({ type: "user", message: { content: "previous session prompt" } }),
+      JSON.stringify({ type: "assistant", message: { model: "claude-sonnet-4-6", usage: { input_tokens: 100, output_tokens: 10 } } }),
+      ""
+    ].join("\n"), "utf8");
+
+    for (let run = 0; run < 2; run += 1) {
+      const turns = [];
+      const watcher = await startTokenWatcher((turn) => turns.push(turn), {
+        claudeGlob: path,
+        codexDbPath,
+        pollIntervalMs: 10,
+        detectionIntervalMs: 10_000,
+        logger: () => {}
+      });
+
+      try {
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        assert.deepEqual(turns, []);
+      } finally {
+        await watcher.close();
+      }
+    }
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("Claude JSONL watcher discards duplicate turns within the dedupe window", async () => {
+  const dir = join(tmpdir(), `tokenwatch-dedupe-${Date.now()}`);
+  const path = join(dir, "session.jsonl");
+  const codexDbPath = join(dir, "logs_2.sqlite");
+  const turns = [];
+  let watcher;
+
+  const duplicateTurnLines = [
+    JSON.stringify({ type: "user", message: { content: "duplicate prompt" } }),
+    JSON.stringify({ type: "assistant", timestamp: "2026-05-18T00:00:00.000Z", message: { model: "claude-sonnet-4-6", usage: { input_tokens: 3, cache_read_input_tokens: 19_600, output_tokens: 166 } } }),
+    JSON.stringify({ type: "user", message: { content: "same token counts in the same timestamp bucket" } }),
+    JSON.stringify({ type: "assistant", timestamp: "2026-05-18T00:00:04.999Z", message: { model: "claude-sonnet-4-6", usage: { input_tokens: 3, cache_read_input_tokens: 19_600, output_tokens: 166 } } }),
+    ""
+  ].join("\n");
+
+  try {
+    await mkdir(dir, { recursive: true });
+    await writeFile(path, "", "utf8");
+    createEmptyCodexLogs(codexDbPath);
+
+    watcher = await startTokenWatcher((turn) => turns.push(turn), {
+      claudeGlob: path,
+      codexDbPath,
+      pollIntervalMs: 10,
+      detectionIntervalMs: 10_000,
+      logger: () => {}
+    });
+
+    await appendFile(path, duplicateTurnLines, "utf8");
+    await waitFor(() => turns.length === 1);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    assert.equal(turns.length, 1);
+    assert.equal(turns[0].promptText, "duplicate prompt");
+    assert.deepEqual(turns[0].usage, {
+      inputTokens: 3,
+      cachedInputTokens: 19600,
+      outputTokens: 166,
       reasoningTokens: 0
     });
   } finally {

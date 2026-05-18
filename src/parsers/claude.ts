@@ -74,11 +74,42 @@ export function parseClaudeLine(line: string): TokenTurn | null {
 }
 
 function extractPromptText(content: unknown): string | null {
-  if (typeof content !== "string") {
+  if (typeof content === "string") {
+    return normalizePromptText(content);
+  }
+  if (!Array.isArray(content)) {
     return null;
   }
-  const trimmed = content.trim();
-  return trimmed.length > 0 ? trimmed : null;
+
+  const textParts: string[] = [];
+  for (const part of content) {
+    if (!isClaudeTextPart(part)) {
+      return null;
+    }
+    textParts.push(part.text);
+  }
+
+  return normalizePromptText(textParts.join("\n"));
+}
+
+function isClaudeTextPart(value: unknown): value is { type: "text"; text: string } {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const part = value as { type?: unknown; text?: unknown };
+  return part.type === "text" && typeof part.text === "string";
+}
+
+function normalizePromptText(text: string): string | null {
+  const trimmed = text.trim();
+  if (trimmed.length === 0 || isInternalClaudePrompt(trimmed)) {
+    return null;
+  }
+  return trimmed;
+}
+
+function isInternalClaudePrompt(text: string): boolean {
+  return /^<skill(?:\s|>)/i.test(text);
 }
 
 function parseTimestamp(value: unknown): Date {

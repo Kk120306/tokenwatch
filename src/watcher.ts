@@ -23,6 +23,8 @@ type LineParser = (line: string) => TokenTurn | null;
 type LineParserFactory = () => LineParser;
 type JsonlInitialReadMode = "tail" | "all";
 
+const DUPLICATE_TURN_WINDOW_MS = 5000;
+
 export const DEFAULT_WATCHER_OPTIONS: WatcherOptions = {
   pollIntervalMs: 1000,
   detectionIntervalMs: 30_000
@@ -89,6 +91,14 @@ export async function startTokenWatcher(
   let codexGoal: GoalMetadata | null = null;
   let codexWaitingForSession = false;
   let detectionTimer: NodeJS.Timeout | null = null;
+  const seenTurnKeys = new Set<string>();
+
+  const emitTurn = (turn: TokenTurn): void => {
+    if (isDuplicateTurn(turn, seenTurnKeys)) {
+      return;
+    }
+    onTurn(turn);
+  };
 
   const applyDetection = async (forceNotify: boolean): Promise<void> => {
     if (closed) {
@@ -125,7 +135,7 @@ export async function startTokenWatcher(
         () => createClaudeParser().parseLine,
         resolvedOptions,
         logger,
-        claudeSignature === "" ? "tail" : "all"
+        "tail"
       );
       claudeSignature = nextClaudeSignature;
     }
@@ -154,7 +164,7 @@ export async function startTokenWatcher(
           await codexWatcher?.close();
           codexWatcher = await startCodexWatcher(
             summary.codex,
-            onTurn,
+            emitTurn,
             resolvedOptions,
             logger,
             codexSignature === "" ? "tail" : "all",
@@ -219,7 +229,7 @@ export async function startTokenWatcher(
     if (result.status !== "found") {
       return null;
     }
-    return startJsonlWatcher(onTurn, result, parserFactory, watcherOptions, watcherLogger, initialReadMode);
+    return startJsonlWatcher(emitTurn, result, parserFactory, watcherOptions, watcherLogger, initialReadMode);
   }
 }
 
@@ -330,6 +340,7 @@ async function startJsonlWatcher(
   const offsets = new Map<string, number>();
   const parsers = new Map<string, LineParser>();
   let activePath: string | null = null;
+  let initialScanReady = false;
   const watchTarget = storage.pattern ?? storage.paths;
 
   if (initialReadMode === "tail") {
@@ -388,11 +399,19 @@ async function startJsonlWatcher(
       return;
     }
 
-    const previousOffset = offsets.get(path) ?? 0;
-    if (stat.size < previousOffset) {
-      offsets.set(path, 0);
+    const previousOffset = offsets.get(path);
+    if (previousOffset === undefined && initialReadMode === "tail" && !initialScanReady) {
+      offsets.set(path, stat.size);
       parsers.delete(path);
+      return;
     }
+
+    if (previousOffset !== undefined && stat.size < previousOffset) {
+      offsets.set(path, stat.size);
+      parsers.delete(path);
+      return;
+    }
+
     const start = offsets.get(path) ?? 0;
     if (stat.size === start) {
       return;
@@ -427,6 +446,9 @@ async function startJsonlWatcher(
   });
   watcher.on("error", (error) => {
     logger(`tokenwatch: watcher error for ${storage.source} ${storage.detail}: ${errorMessage(error)}`);
+  });
+  watcher.on("ready", () => {
+    initialScanReady = true;
   });
 
   return {
@@ -517,6 +539,23 @@ function storageSignature(result: StorageResult): string {
 
 function withGoal(turn: TokenTurn, goal: GoalMetadata | null): TokenTurn {
   return goal ? { ...turn, goal } : { ...turn, goal: null };
+}
+
+function isDuplicateTurn(turn: TokenTurn, seenTurnKeys: Set<string>): boolean {
+  const turnKey = [
+    turn.model,
+    turn.usage.inputTokens,
+    turn.usage.outputTokens,
+    turn.usage.cachedInputTokens,
+    Math.floor(turn.timestamp.getTime() / DUPLICATE_TURN_WINDOW_MS)
+  ].join(":");
+
+  if (seenTurnKeys.has(turnKey)) {
+    return true;
+  }
+
+  seenTurnKeys.add(turnKey);
+  return false;
 }
 
 function errorMessage(error: unknown): string {

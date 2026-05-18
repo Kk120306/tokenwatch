@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { scoreCacheEfficiency } from "../dist/cache-score.js";
 import { classifyPromptTopic, resolveTurnTopic } from "../dist/classifier.js";
-import { getContextWindow } from "../dist/context-windows.js";
+import { getContextUsagePct, getContextWindow } from "../dist/context-windows.js";
 import { createClaudeParser } from "../dist/parsers/claude.js";
 import { createCodexJsonlParser, parseCodexFeedbackLogBody, parseCodexJsonlLine, parseCodexLogRow } from "../dist/parsers/codex.js";
 import { createParsedTurn } from "../dist/turns.js";
@@ -24,6 +24,61 @@ test("Claude parser extracts assistant message usage", async () => {
     outputTokens: 347,
     reasoningTokens: 0
   });
+});
+
+test("Claude parser accepts real text prompts and ignores internal user entries", () => {
+  const parser = createClaudeParser();
+
+  assert.equal(parser.parseLine(JSON.stringify({
+    type: "user",
+    message: {
+      content: [{ type: "text", text: "whats this project about" }]
+    }
+  })), null);
+
+  const realTurn = parser.parseLine(JSON.stringify({
+    type: "assistant",
+    message: {
+      model: "claude-sonnet-4-6",
+      usage: { input_tokens: 300, output_tokens: 30 }
+    }
+  }));
+
+  assert.equal(realTurn.promptText, "whats this project about");
+  assert.deepEqual(realTurn.usage, {
+    inputTokens: 300,
+    cachedInputTokens: 0,
+    outputTokens: 30,
+    reasoningTokens: 0
+  });
+
+  assert.equal(parser.parseLine(JSON.stringify({
+    type: "user",
+    message: {
+      content: [{ type: "tool_result", content: "internal tool output" }]
+    }
+  })), null);
+  assert.equal(parser.parseLine(JSON.stringify({
+    type: "assistant",
+    message: {
+      model: "claude-sonnet-4-6",
+      usage: { input_tokens: 999, output_tokens: 99 }
+    }
+  })), null);
+
+  assert.equal(parser.parseLine(JSON.stringify({
+    type: "user",
+    message: {
+      content: [{ type: "text", text: "<skill>\ninternal skill instructions\n</skill>" }]
+    }
+  })), null);
+  assert.equal(parser.parseLine(JSON.stringify({
+    type: "assistant",
+    message: {
+      model: "claude-sonnet-4-6",
+      usage: { input_tokens: 888, output_tokens: 88 }
+    }
+  })), null);
 });
 
 test("Codex parser extracts response.completed usage from SQLite log rows", async () => {
@@ -175,6 +230,7 @@ test("Codex JSONL parser aggregates rollout token_count events for one visible p
   }));
 
   assert.equal(second.updateKey, first.updateKey);
+  assert.equal(second.contextInputTokens, 250);
   assert.deepEqual(second.usage, {
     inputTokens: 350,
     cachedInputTokens: 240,
@@ -362,14 +418,41 @@ test("topic classification and manual override populate ParsedTurn topics", () =
   assert.equal(parsed.cacheGrade, "F");
   assert.equal(parsed.cacheHitRate, 0.1);
   assert.equal(parsed.cacheSavingsUsd, 0);
-  assert.equal(parsed.contextWindow, 128000);
-  assert.equal(parsed.contextUsagePct, 1000 / 128000);
+  assert.equal(parsed.contextWindow, 237500);
+  assert.equal(parsed.contextUsagePct, 1000 / 237500);
 });
 
 test("context window lookup covers known models and unknown fallback", () => {
   assert.equal(getContextWindow("claude-sonnet-4-6"), 200000);
-  assert.equal(getContextWindow("gpt-5.5"), 128000);
+  assert.equal(getContextWindow("gpt-5.5"), 237500);
   assert.equal(getContextWindow("unknown-model"), null);
+});
+
+test("context usage percentage is capped to the model window", () => {
+  assert.equal(getContextUsagePct(64_000, 128_000), 0.5);
+  assert.equal(getContextUsagePct(256_000, 128_000), 1);
+  assert.equal(getContextUsagePct(1_000, null), null);
+});
+
+test("ParsedTurn context usage uses latest context snapshot when available", () => {
+  const parsed = createParsedTurn({
+    source: "codex",
+    model: "gpt-5.5",
+    timestamp: new Date("2026-05-18T00:00:00.000Z"),
+    timestampIso: "2026-05-18T00:00:00.000Z",
+    promptText: "explain the architecture",
+    contextInputTokens: 250,
+    contextWindow: 1000,
+    usage: {
+      inputTokens: 350,
+      cachedInputTokens: 240,
+      outputTokens: 100,
+      reasoningTokens: 35
+    }
+  }, 8, {});
+
+  assert.equal(parsed.inputTokens, 350);
+  assert.equal(parsed.contextUsagePct, 0.25);
 });
 
 test("cache efficiency scoring grades thresholds and savings", () => {

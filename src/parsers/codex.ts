@@ -35,6 +35,7 @@ interface ActiveCodexPrompt {
   timestamp: Date;
   timestampIso: string | null;
   usage: TokenUsage;
+  contextInputTokens: number | null;
   contextWindow: number | null;
 }
 
@@ -100,6 +101,7 @@ export function createCodexJsonlParser(options: CodexJsonlParserOptions = {}): C
             timestamp: parseTimestamp(rolloutTurn.timestampIso),
             timestampIso: rolloutTurn.timestampIso,
             usage: createEmptyUsage(),
+            contextInputTokens: null,
             contextWindow: null
           };
         }
@@ -112,6 +114,7 @@ export function createCodexJsonlParser(options: CodexJsonlParserOptions = {}): C
         activePrompt = {
           ...activePrompt,
           usage: addUsage(activePrompt.usage, rolloutTurn.usage),
+          contextInputTokens: rolloutTurn.usage.inputTokens,
           contextWindow: rolloutTurn.contextWindow ?? activePrompt.contextWindow
         };
         return turnFromActivePrompt(activePrompt, options);
@@ -257,6 +260,7 @@ function turnFromActivePrompt(
     timestampIso: prompt.timestampIso,
     promptText: prompt.promptText,
     usage: prompt.usage,
+    contextInputTokens: prompt.contextInputTokens,
     contextWindow: prompt.contextWindow
   };
 }

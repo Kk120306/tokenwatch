@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
@@ -189,6 +189,95 @@ test("export runner reads the active Codex session from the start and appends fi
     assert.match(csv, /^1,2026-05-18T10:00:00.000Z,gpt-5.5,codex,building,build an export report,3000,750,120,14,.*goal-1,active,4321,10000$/m);
   } finally {
     console.log = originalLog;
+    restoreEnv("HOME", originalHome);
+    restoreEnv("CODEX_HOME", originalCodexHome);
+    restoreEnv("CLAUDE_HOME", originalClaudeHome);
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("export runner defaults to tokenwatch-exports and exports only the most recent session", async () => {
+  const originalHome = process.env.HOME;
+  const originalCodexHome = process.env.CODEX_HOME;
+  const originalClaudeHome = process.env.CLAUDE_HOME;
+  const originalCwd = process.cwd();
+  const home = await makeTempDir();
+  const codexHome = join(home, "codex");
+  const claudeHome = join(home, "claude");
+  const rolloutPath = join(codexHome, "sessions", "rollout.jsonl");
+  const claudePath = join(claudeHome, "session.jsonl");
+  const logs = [];
+  const originalLog = console.log;
+
+  try {
+    process.env.HOME = home;
+    process.env.CODEX_HOME = codexHome;
+    process.env.CLAUDE_HOME = claudeHome;
+    process.chdir(home);
+    await mkdir(join(codexHome, "sessions"), { recursive: true });
+    await mkdir(claudeHome, { recursive: true });
+    await writeFile(rolloutPath, [
+      JSON.stringify({
+        timestamp: "2026-05-18T09:00:00.000Z",
+        type: "event_msg",
+        payload: {
+          type: "user_message",
+          message: "codex session should not be exported"
+        }
+      }),
+      JSON.stringify({
+        type: "event_msg",
+        payload: {
+          type: "token_count",
+          info: {
+            last_token_usage: {
+              input_tokens: 1000,
+              cached_input_tokens: 100,
+              output_tokens: 50
+            }
+          }
+        }
+      })
+    ].join("\n"), "utf8");
+    await writeFile(claudePath, [
+      JSON.stringify({
+        type: "user",
+        timestamp: "2026-05-18T10:00:00.000Z",
+        message: { content: "claude previous session export" }
+      }),
+      JSON.stringify({
+        type: "assistant",
+        timestamp: "2026-05-18T10:01:00.000Z",
+        message: {
+          model: "claude-haiku-4-5",
+          usage: {
+            input_tokens: 500,
+            cache_read_input_tokens: 100,
+            output_tokens: 25
+          }
+        }
+      })
+    ].join("\n"), "utf8");
+    createCodexState(join(codexHome, "state_5.sqlite"), rolloutPath);
+    await utimes(rolloutPath, new Date("2026-05-18T09:00:00.000Z"), new Date("2026-05-18T09:00:00.000Z"));
+    await utimes(claudePath, new Date("2026-05-18T10:00:00.000Z"), new Date("2026-05-18T10:00:00.000Z"));
+
+    console.log = (message) => {
+      logs.push(String(message));
+    };
+
+    await runExport(["--md"]);
+
+    assert.equal(logs[0], "exported 1 prompts");
+    assert.match(logs[1], /^  → tokenwatch-exports\/tokenwatch-\d{4}-\d{2}-\d{2}\.md$/);
+    const files = await readdir(join(home, "tokenwatch-exports"));
+    assert.equal(files.length, 1);
+    const markdown = await readFile(join(home, "tokenwatch-exports", files[0]), "utf8");
+    assert.match(markdown, /claude previous session export/);
+    assert.doesNotMatch(markdown, /codex session should not be exported/);
+  } finally {
+    console.log = originalLog;
+    process.chdir(originalCwd);
     restoreEnv("HOME", originalHome);
     restoreEnv("CODEX_HOME", originalCodexHome);
     restoreEnv("CLAUDE_HOME", originalClaudeHome);

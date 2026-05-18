@@ -12,7 +12,9 @@ import { findMostRecentSessionFile, inspectPath, readCodexTurnsSince } from "../
 import { renderCsvReport } from "./csv.js";
 import { formatFilenameDate } from "./format.js";
 import { renderMarkdownReport } from "./markdown.js";
-import type { FoundStorageResult, ParsedTurn, PricingTable, StorageResult, TokenTurn } from "../types.js";
+import type { ActiveSessionFile, FoundStorageResult, ParsedTurn, PricingTable, StorageResult, TokenTurn } from "../types.js";
+
+const DEFAULT_EXPORT_DIR = "tokenwatch-exports";
 
 interface ExportArgs {
   markdown: boolean;
@@ -20,9 +22,9 @@ interface ExportArgs {
   outDir: string;
 }
 
-interface LoadedTurn {
-  turn: TokenTurn;
-  sourceOrder: number;
+interface ExportSession {
+  storage: FoundStorageResult;
+  activeFile: ActiveSessionFile;
 }
 
 export async function runExport(argv: readonly string[]): Promise<void> {
@@ -59,7 +61,7 @@ export async function runExport(argv: readonly string[]): Promise<void> {
 function parseExportArgs(argv: readonly string[]): ExportArgs {
   let markdown = false;
   let csv = false;
-  let outDir = ".";
+  let outDir = DEFAULT_EXPORT_DIR;
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -96,33 +98,32 @@ function parseExportArgs(argv: readonly string[]): ExportArgs {
 }
 
 async function readCurrentSessionTurns(pricing: PricingTable): Promise<ParsedTurn[]> {
-  const detected = [
+  const detected: StorageResult[] = [
     detectClaudeStorage(),
     detectCodexStorage()
   ];
-  const loaded: LoadedTurn[] = [];
-
-  for (const [sourceOrder, storage] of detected.entries()) {
-    const turns = await readStorageTurns(storage);
-    loaded.push(...turns.map((turn) => ({ turn, sourceOrder })));
+  const session = await findPreviousSession(detected);
+  if (!session) {
+    return [];
   }
+  const turns = await readStorageTurns(session.storage, session.activeFile.path);
 
   const parsed: ParsedTurn[] = [];
   const byUpdateKey = new Map<string, number>();
   let nextId = 0;
 
-  for (const item of loaded.sort(compareLoadedTurns)) {
-    if (isZeroTokenTurn(item.turn)) {
+  for (const turn of turns.sort(compareTurns)) {
+    if (isZeroTokenTurn(turn)) {
       continue;
     }
-    const existingIndex = item.turn.updateKey ? byUpdateKey.get(item.turn.updateKey) : undefined;
+    const existingIndex = turn.updateKey ? byUpdateKey.get(turn.updateKey) : undefined;
     if (existingIndex !== undefined) {
-      parsed[existingIndex] = createParsedTurn(item.turn, parsed[existingIndex].id, pricing);
+      parsed[existingIndex] = createParsedTurn(turn, parsed[existingIndex].id, pricing);
       continue;
     }
-    const parsedTurn = createParsedTurn(item.turn, ++nextId, pricing);
-    if (item.turn.updateKey) {
-      byUpdateKey.set(item.turn.updateKey, parsed.length);
+    const parsedTurn = createParsedTurn(turn, ++nextId, pricing);
+    if (turn.updateKey) {
+      byUpdateKey.set(turn.updateKey, parsed.length);
     }
     parsed.push(parsedTurn);
   }
@@ -130,32 +131,41 @@ async function readCurrentSessionTurns(pricing: PricingTable): Promise<ParsedTur
   return parsed.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
 }
 
-async function readStorageTurns(storage: StorageResult): Promise<TokenTurn[]> {
+async function findPreviousSession(detected: readonly StorageResult[]): Promise<ExportSession | null> {
+  const sessions = await Promise.all(detected.map(findExportSession));
+  return sessions
+    .filter((session): session is ExportSession => session !== null)
+    .sort((a, b) => b.activeFile.mtimeMs - a.activeFile.mtimeMs)[0] ?? null;
+}
+
+async function findExportSession(storage: StorageResult): Promise<ExportSession | null> {
   if (storage.status !== "found") {
-    return [];
+    return null;
   }
+  const activeFile = storage.format === "sqlite"
+    ? await inspectPath(storage.path, storage.source)
+    : await findActiveStoragePath(storage);
+  return activeFile ? { storage, activeFile } : null;
+}
+
+async function readStorageTurns(storage: FoundStorageResult, activePath: string): Promise<TokenTurn[]> {
   let turns: TokenTurn[];
   if (storage.source === "codex" && storage.format === "sqlite") {
-    turns = readCodexSqliteTurns(storage.path);
+    turns = readCodexSqliteTurns(activePath);
     return turns.map((turn) => ({ ...turn, goal: storage.goal ?? null }));
-  }
-  const path = await findActiveStoragePath(storage);
-  if (!path) {
-    return [];
   }
   const parser = storage.source === "claude"
     ? createClaudeParser().parseLine
     : createCodexJsonlParser({ model: storage.model }).parseLine;
-  turns = await readParsedLines(path, parser);
+  turns = await readParsedLines(activePath, parser);
   return storage.source === "codex"
     ? turns.map((turn) => ({ ...turn, goal: storage.goal ?? null }))
     : turns;
 }
 
-async function findActiveStoragePath(storage: FoundStorageResult): Promise<string | null> {
+async function findActiveStoragePath(storage: FoundStorageResult): Promise<ActiveSessionFile | null> {
   const inspected = await Promise.all(storage.paths.map((path) => inspectPath(path, storage.source)));
-  const active = await findMostRecentSessionFile(inspected.filter((file) => file !== null));
-  return active?.path ?? null;
+  return findMostRecentSessionFile(inspected.filter((file) => file !== null));
 }
 
 function readCodexSqliteTurns(path: string): TokenTurn[] {
@@ -198,8 +208,8 @@ async function nextAvailablePath(outDir: string, date: string, extension: "md" |
   }
 }
 
-function compareLoadedTurns(a: LoadedTurn, b: LoadedTurn): number {
-  return a.turn.timestamp.getTime() - b.turn.timestamp.getTime() || a.sourceOrder - b.sourceOrder;
+function compareTurns(a: TokenTurn, b: TokenTurn): number {
+  return a.timestamp.getTime() - b.timestamp.getTime();
 }
 
 function isZeroTokenTurn(turn: TokenTurn): boolean {

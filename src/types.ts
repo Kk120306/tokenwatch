@@ -24,6 +24,7 @@ export interface TokenTurn {
   timestampIso: string | null;
   promptText: string | null;
   usage: TokenUsage;
+  contextInputTokens?: number | null;
   contextWindow?: number | null;
   goal?: GoalMetadata | null;
 }

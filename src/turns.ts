@@ -18,7 +18,8 @@ export function createParsedTurn(
     cachedTokens: turn.usage.cachedInputTokens
   }, pricing);
   const contextWindow = turn.contextWindow ?? getContextWindow(model);
-  const contextUsagePct = getContextUsagePct(turn.usage.inputTokens, contextWindow);
+  const contextInputTokens = turn.contextInputTokens ?? turn.usage.inputTokens;
+  const contextUsagePct = getContextUsagePct(contextInputTokens, contextWindow);
   return {
     updateKey: turn.updateKey,
     id,
