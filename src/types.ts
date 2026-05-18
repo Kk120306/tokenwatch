@@ -45,6 +45,11 @@ export interface SessionTotal {
 export type TopicConfidence = "auto" | "manual";
 export type CacheGrade = "A" | "B" | "C" | "D" | "F";
 
+export interface TopicRuleConfig {
+  topic: string;
+  keywords: string[];
+}
+
 export interface ParsedTurn {
   updateKey?: string;
   id: number;

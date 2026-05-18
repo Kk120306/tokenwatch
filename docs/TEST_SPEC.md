@@ -8,6 +8,12 @@
 - Codex SQLite parser attaches preceding `user_message` telemetry to the next `response.completed` turn when present.
 - Codex parser extracts `input_tokens`, `input_tokens_details.cached_tokens`, `output_tokens`, and `response.model`.
 - Codex parser ignores malformed, unrelated, or usage-free SQLite log rows.
+- Topic classification applies configured keyword rules before built-in rules, while manual `--topic` override remains highest priority.
+
+## Configuration Tests
+
+- `~/.tokenwatch/config.json` loads budget values, alert threshold, and valid configured topic rules.
+- Invalid configured topic rules are ignored without breaking default configuration loading.
 
 ## Pricing Tests
 

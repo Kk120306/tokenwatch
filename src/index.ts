@@ -97,7 +97,7 @@ async function main(argv: readonly string[]): Promise<void> {
     const id = existingIndex >= 0
       ? state.turns[existingIndex].id
       : ++turnIndex;
-    const parsedTurn = createParsedTurn(turn, id, pricing, args.topic);
+    const parsedTurn = createParsedTurn(turn, id, pricing, args.topic, budgetConfig.topicRules);
     if (hasBudget(budgetConfig)) {
       const previousCost = existingIndex >= 0 ? state.turns[existingIndex].costUsd : 0;
       const spendDelta = parsedTurn.costUsd - previousCost;
@@ -223,7 +223,8 @@ function applyBudgetOverrides(config: TokenwatchConfig, args: CliArgs): Tokenwat
   return {
     dailyBudgetUsd: args.dailyBudgetUsd ?? config.dailyBudgetUsd,
     weeklyBudgetUsd: args.weeklyBudgetUsd ?? config.weeklyBudgetUsd,
-    alertAt: args.alertAt ?? config.alertAt
+    alertAt: args.alertAt ?? config.alertAt,
+    topicRules: config.topicRules
   };
 }
 

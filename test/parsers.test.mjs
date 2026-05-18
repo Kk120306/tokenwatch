@@ -421,6 +421,15 @@ test("Codex JSONL parser still extracts nested response.completed usage", () => 
 test("topic classification and manual override populate ParsedTurn topics", () => {
   assert.equal(classifyPromptTopic("please fix the failing auth bug"), "debugging");
   assert.equal(classifyPromptTopic("explain how token caching works"), "learning");
+  assert.equal(classifyPromptTopic("fix the stripe invoice retry", [
+    { topic: "billing", keywords: ["stripe", "invoice"] }
+  ]), "billing");
+  assert.deepEqual(resolveTurnTopic("audit the signup funnel", undefined, [
+    { topic: "growth", keywords: ["signup funnel"] }
+  ]), {
+    topic: "growth",
+    topicConfidence: "auto"
+  });
   assert.deepEqual(resolveTurnTopic(null, undefined), {
     topic: null,
     topicConfidence: null
@@ -449,6 +458,22 @@ test("topic classification and manual override populate ParsedTurn topics", () =
   assert.equal(parsed.cacheSavingsUsd, 0);
   assert.equal(parsed.contextWindow, 237500);
   assert.equal(parsed.contextUsagePct, 1000 / 237500);
+
+  const configured = createParsedTurn({
+    source: "codex",
+    model: "gpt-5.5",
+    timestamp: new Date("2026-05-18T00:01:00.000Z"),
+    timestampIso: "2026-05-18T00:01:00.000Z",
+    promptText: "add stripe invoice retry handling",
+    usage: {
+      inputTokens: 100,
+      cachedInputTokens: 0,
+      outputTokens: 10,
+      reasoningTokens: 0
+    }
+  }, 8, {}, undefined, [{ topic: "billing", keywords: ["stripe", "invoice"] }]);
+  assert.equal(configured.topic, "billing");
+  assert.equal(configured.topicConfidence, "auto");
 });
 
 test("context window lookup covers known models and unknown fallback", () => {

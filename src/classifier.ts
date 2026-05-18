@@ -1,4 +1,4 @@
-import type { TopicConfidence } from "./types.js";
+import type { TopicConfidence, TopicRuleConfig } from "./types.js";
 
 export const TOPIC_RULES: [RegExp, string][] = [
   [/\b(fix|bug|error|crash|exception|broken|not working)\b/i, "debugging"],
@@ -16,7 +16,15 @@ export interface TopicResult {
   topicConfidence: TopicConfidence | null;
 }
 
-export function classifyPromptTopic(promptText: string): string {
+export function classifyPromptTopic(
+  promptText: string,
+  configuredRules: readonly TopicRuleConfig[] = []
+): string {
+  const configuredTopic = classifyWithConfiguredRules(promptText, configuredRules);
+  if (configuredTopic) {
+    return configuredTopic;
+  }
+
   for (const [pattern, topic] of TOPIC_RULES) {
     if (pattern.test(promptText)) {
       return topic;
@@ -27,7 +35,8 @@ export function classifyPromptTopic(promptText: string): string {
 
 export function resolveTurnTopic(
   promptText: string | null,
-  manualTopic: string | undefined
+  manualTopic: string | undefined,
+  configuredRules: readonly TopicRuleConfig[] = []
 ): TopicResult {
   const normalizedManualTopic = manualTopic?.trim();
   if (normalizedManualTopic) {
@@ -45,7 +54,28 @@ export function resolveTurnTopic(
   }
 
   return {
-    topic: classifyPromptTopic(promptText),
+    topic: classifyPromptTopic(promptText, configuredRules),
     topicConfidence: "auto"
   };
+}
+
+function classifyWithConfiguredRules(
+  promptText: string,
+  configuredRules: readonly TopicRuleConfig[]
+): string | null {
+  const normalizedPrompt = promptText.toLowerCase();
+  for (const rule of configuredRules) {
+    const topic = rule.topic.trim();
+    if (!topic) {
+      continue;
+    }
+    const matches = rule.keywords.some((keyword) => {
+      const normalizedKeyword = keyword.trim().toLowerCase();
+      return normalizedKeyword.length > 0 && normalizedPrompt.includes(normalizedKeyword);
+    });
+    if (matches) {
+      return topic;
+    }
+  }
+  return null;
 }

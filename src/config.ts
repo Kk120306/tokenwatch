@@ -1,17 +1,20 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import type { TopicRuleConfig } from "./types.js";
 
 export interface TokenwatchConfig {
   dailyBudgetUsd: number | null;
   weeklyBudgetUsd: number | null;
   alertAt: number;
+  topicRules: TopicRuleConfig[];
 }
 
 export const DEFAULT_CONFIG: TokenwatchConfig = {
   dailyBudgetUsd: null,
   weeklyBudgetUsd: null,
-  alertAt: 0.8
+  alertAt: 0.8,
+  topicRules: []
 };
 
 export function getTokenwatchDir(): string {
@@ -21,7 +24,7 @@ export function getTokenwatchDir(): string {
 export function loadConfig(baseDir = getTokenwatchDir()): TokenwatchConfig {
   const path = join(baseDir, "config.json");
   if (!existsSync(path)) {
-    return { ...DEFAULT_CONFIG };
+    return createDefaultConfig();
   }
 
   try {
@@ -29,10 +32,11 @@ export function loadConfig(baseDir = getTokenwatchDir()): TokenwatchConfig {
     return {
       dailyBudgetUsd: nullablePositiveNumber(parsed.dailyBudgetUsd),
       weeklyBudgetUsd: nullablePositiveNumber(parsed.weeklyBudgetUsd),
-      alertAt: validAlertAt(parsed.alertAt)
+      alertAt: validAlertAt(parsed.alertAt),
+      topicRules: validTopicRules(parsed.topicRules)
     };
   } catch {
-    return { ...DEFAULT_CONFIG };
+    return createDefaultConfig();
   }
 }
 
@@ -50,4 +54,36 @@ function validAlertAt(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) && value > 0 && value <= 1
     ? value
     : DEFAULT_CONFIG.alertAt;
+}
+
+function validTopicRules(value: unknown): TopicRuleConfig[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const rules: TopicRuleConfig[] = [];
+  for (const rule of value) {
+    if (!rule || typeof rule !== "object") {
+      continue;
+    }
+    const topic = "topic" in rule && typeof rule.topic === "string" ? rule.topic.trim() : "";
+    const rawKeywords: unknown[] = "keywords" in rule && Array.isArray(rule.keywords)
+      ? rule.keywords
+      : [];
+    const keywords = rawKeywords
+        .filter((keyword): keyword is string => typeof keyword === "string")
+        .map((keyword) => keyword.trim())
+        .filter((keyword) => keyword.length > 0);
+    if (topic && keywords.length > 0) {
+      rules.push({ topic, keywords });
+    }
+  }
+  return rules;
+}
+
+function createDefaultConfig(): TokenwatchConfig {
+  return {
+    ...DEFAULT_CONFIG,
+    topicRules: [...DEFAULT_CONFIG.topicRules]
+  };
 }

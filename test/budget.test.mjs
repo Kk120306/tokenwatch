@@ -18,20 +18,29 @@ test("budget config loads defaults and validates configured values", async () =>
     assert.deepEqual(loadConfig(dir), {
       dailyBudgetUsd: null,
       weeklyBudgetUsd: null,
-      alertAt: 0.8
+      alertAt: 0.8,
+      topicRules: []
     });
 
     await mkdir(dir, { recursive: true });
     await writeFile(join(dir, "config.json"), JSON.stringify({
       dailyBudgetUsd: 5,
       weeklyBudgetUsd: 25,
-      alertAt: 0.75
+      alertAt: 0.75,
+      topicRules: [
+        { topic: "billing", keywords: ["invoice", "stripe", "refund"] },
+        { topic: "", keywords: ["ignored"] },
+        { topic: "invalid", keywords: [] }
+      ]
     }), "utf8");
 
     assert.deepEqual(loadConfig(dir), {
       dailyBudgetUsd: 5,
       weeklyBudgetUsd: 25,
-      alertAt: 0.75
+      alertAt: 0.75,
+      topicRules: [
+        { topic: "billing", keywords: ["invoice", "stripe", "refund"] }
+      ]
     });
   } finally {
     await rm(dir, { recursive: true, force: true });

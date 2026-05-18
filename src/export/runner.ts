@@ -3,6 +3,7 @@ import { mkdir } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import Database from "better-sqlite3";
+import { loadConfig } from "../config.js";
 import { detectClaudeStorage, detectCodexStorage } from "../detect.js";
 import { loadPricing } from "../pricing.js";
 import { createClaudeParser } from "../parsers/claude.js";
@@ -14,7 +15,7 @@ import { renderCsvReport } from "./csv.js";
 import { formatFilenameDate } from "./format.js";
 import { renderJsonReport } from "./json.js";
 import { renderMarkdownReport } from "./markdown.js";
-import type { ActiveSessionFile, FoundStorageResult, ParsedTurn, PricingTable, SessionSource, StorageResult, TokenTurn } from "../types.js";
+import type { ActiveSessionFile, FoundStorageResult, ParsedTurn, PricingTable, SessionSource, StorageResult, TokenTurn, TopicRuleConfig } from "../types.js";
 
 const DEFAULT_EXPORT_DIR = "tokenwatch-exports";
 
@@ -35,7 +36,8 @@ interface ExportSession {
 export async function runExport(argv: readonly string[]): Promise<void> {
   const args = parseExportArgs(argv);
   const pricing = loadPricing();
-  const turns = await readCurrentSessionTurns(pricing, args);
+  const config = loadConfig();
+  const turns = await readCurrentSessionTurns(pricing, args, config.topicRules);
   if (turns.length === 0) {
     console.log("no active session found — start a prompt first");
     return;
@@ -145,7 +147,8 @@ function parseSessionSource(value: string): SessionSource {
 
 async function readCurrentSessionTurns(
   pricing: PricingTable,
-  options: Pick<ExportArgs, "sessionPath" | "sessionSource"> = {}
+  options: Pick<ExportArgs, "sessionPath" | "sessionSource"> = {},
+  topicRules: readonly TopicRuleConfig[] = []
 ): Promise<ParsedTurn[]> {
   const detected = detectExportStorage(options);
   const session = await findPreviousSession(detected);
@@ -164,10 +167,10 @@ async function readCurrentSessionTurns(
     }
     const existingIndex = turn.updateKey ? byUpdateKey.get(turn.updateKey) : undefined;
     if (existingIndex !== undefined) {
-      parsed[existingIndex] = createParsedTurn(turn, parsed[existingIndex].id, pricing);
+      parsed[existingIndex] = createParsedTurn(turn, parsed[existingIndex].id, pricing, undefined, topicRules);
       continue;
     }
-    const parsedTurn = createParsedTurn(turn, ++nextId, pricing);
+    const parsedTurn = createParsedTurn(turn, ++nextId, pricing, undefined, topicRules);
     if (turn.updateKey) {
       byUpdateKey.set(turn.updateKey, parsed.length);
     }

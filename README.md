@@ -106,10 +106,10 @@ tokenwatch export --csv
 - Cache Visibility: Show cached input tokens, cache hit rates, cache grades, and estimated cache savings.
 - Context Pressure: Estimate context-window usage for known models.
 - Budget Tracking: Persist daily and weekly spend under `~/.tokenwatch`.
-- Topic Grouping: Auto-classify prompt topics or force a manual topic with `--topic`.
+- Topic Grouping: Auto-classify prompt topics, add local keyword rules, or force a manual topic with `--topic`.
 - Model Recommendations: Compare observed model costs by topic after enough prompts are available.
 - Goal Metadata: Show Codex goal information when present in local Codex state.
-- Report Export: Generate Markdown and CSV reports for the latest detected session.
+- Report Export: Generate Markdown, CSV, and JSON reports for detected or explicit sessions.
 - Local-First Operation: No network calls, no remote pricing lookup, and no mutation of AI CLI state.
 
 ## CLI Reference
@@ -163,17 +163,27 @@ Environment variables:
 | `CLAUDE_HOME` | Claude Code home directory checked before `~/.claude`. |
 
 
-Optional budget configuration:
+Optional configuration:
 
 ```json
 {
   "dailyBudgetUsd": 5,
   "weeklyBudgetUsd": 25,
-  "alertAt": 0.8
+  "alertAt": 0.8,
+  "topicRules": [
+    {
+      "topic": "billing",
+      "keywords": ["stripe", "invoice", "refund"]
+    },
+    {
+      "topic": "frontend",
+      "keywords": ["react", "css", "layout"]
+    }
+  ]
 }
 ```
 
-Save that as `~/.tokenwatch/config.json`. CLI budget flags override the file for the current run.
+Save that as `~/.tokenwatch/config.json`. Custom `topicRules` are checked before the built-in classifier. CLI budget flags override budget values for the current run, and `--topic <name>` overrides all automatic topic classification for that session.
 
 ## Reports
 

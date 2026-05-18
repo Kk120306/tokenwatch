@@ -2,15 +2,16 @@ import { scoreCacheEfficiency } from "./cache-score.js";
 import { resolveTurnTopic } from "./classifier.js";
 import { getContextUsagePct, getContextWindow } from "./context-windows.js";
 import { estimateCostUsd } from "./pricing.js";
-import type { ParsedTurn, PricingTable, TokenTurn } from "./types.js";
+import type { ParsedTurn, PricingTable, TokenTurn, TopicRuleConfig } from "./types.js";
 
 export function createParsedTurn(
   turn: TokenTurn,
   id: number,
   pricing: PricingTable,
-  manualTopic?: string
+  manualTopic?: string,
+  configuredTopicRules: readonly TopicRuleConfig[] = []
 ): ParsedTurn {
-  const topic = resolveTurnTopic(turn.promptText, manualTopic);
+  const topic = resolveTurnTopic(turn.promptText, manualTopic, configuredTopicRules);
   const model = normalizeModel(turn.model);
   const cacheScore = scoreCacheEfficiency({
     model,
