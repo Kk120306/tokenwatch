@@ -15,6 +15,7 @@
 
 - `~/.tokenwatch/config.json` loads budget values, alert threshold, prompt redaction preference, and valid configured topic rules.
 - Invalid configured topic rules are ignored without breaking default configuration loading.
+- First-run init creates, preserves, and updates tokenwatch config without touching Claude Code or Codex CLI storage.
 
 ## Pricing Tests
 
@@ -48,6 +49,7 @@
 
 - Build succeeds with `tsc`.
 - `node dist/index.js --help` prints usage.
+- `node dist/index.js init --non-interactive` creates or preserves tokenwatch config defaults.
 - `node dist/index.js doctor` prints local setup diagnostics without mutating source logs.
 - `npm test` passes.
 

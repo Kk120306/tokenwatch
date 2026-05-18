@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { TopicRuleConfig } from "./types.js";
@@ -23,8 +23,12 @@ export function getTokenwatchDir(): string {
   return join(homedir(), ".tokenwatch");
 }
 
+export function getConfigPath(baseDir = getTokenwatchDir()): string {
+  return join(baseDir, "config.json");
+}
+
 export function loadConfig(baseDir = getTokenwatchDir()): TokenwatchConfig {
-  const path = join(baseDir, "config.json");
+  const path = getConfigPath(baseDir);
   if (!existsSync(path)) {
     return createDefaultConfig();
   }
@@ -45,6 +49,26 @@ export function loadConfig(baseDir = getTokenwatchDir()): TokenwatchConfig {
 
 export function hasBudget(config: TokenwatchConfig): boolean {
   return config.dailyBudgetUsd !== null || config.weeklyBudgetUsd !== null;
+}
+
+export function saveConfig(config: TokenwatchConfig, baseDir = getTokenwatchDir()): string {
+  mkdirSync(baseDir, { recursive: true });
+  const path = getConfigPath(baseDir);
+  const tmpPath = `${path}.tmp`;
+  const normalized = normalizeConfig(config);
+  writeFileSync(tmpPath, `${JSON.stringify(normalized, null, 2)}\n`, "utf8");
+  renameSync(tmpPath, path);
+  return path;
+}
+
+export function normalizeConfig(config: TokenwatchConfig): TokenwatchConfig {
+  return {
+    dailyBudgetUsd: nullablePositiveNumber(config.dailyBudgetUsd),
+    weeklyBudgetUsd: nullablePositiveNumber(config.weeklyBudgetUsd),
+    alertAt: validAlertAt(config.alertAt),
+    topicRules: validTopicRules(config.topicRules),
+    redactPromptText: config.redactPromptText === true
+  };
 }
 
 function nullablePositiveNumber(value: unknown): number | null {

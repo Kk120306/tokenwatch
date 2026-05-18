@@ -34,6 +34,8 @@ When local storage does not expose prompt text for a turn, tokenwatch still coun
 
 ```sh
 npm install -g tokenwatch
+tokenwatch init
+tokenwatch doctor
 tokenwatch
 ```
 
@@ -61,6 +63,7 @@ tokenwatch --claude-glob "$HOME/.claude/projects/**/*.jsonl"
 tokenwatch --codex-db "$HOME/.codex/logs_2.sqlite"
 
 # List and select detected sessions
+tokenwatch init --redact-prompts --daily-budget 5 --weekly-budget 25
 tokenwatch doctor
 tokenwatch sessions
 tokenwatch --session "$HOME/.codex/sessions/2026/05/18/rollout.jsonl" --session-source codex
@@ -107,6 +110,7 @@ tokenwatch export --csv
 
 - Live Dashboard: Render prompt, model, and stats views in an interactive terminal UI.
 - Multi-Source Detection: Detect Claude Code JSONL and Codex CLI SQLite, JSONL, and log storage.
+- First-Run Setup: Create or update tokenwatch defaults with `tokenwatch init` or `tokenwatch setup`.
 - Setup Diagnostics: Check local log discovery, config, pricing freshness, and suggested watch commands with `tokenwatch doctor`.
 - Cost Tracking: Estimate cost from bundled `pricing.json` data with safe zero-cost fallback for unknown models.
 - Cache Visibility: Show cached input tokens, cache hit rates, cache grades, and estimated cache savings.
@@ -123,6 +127,7 @@ tokenwatch export --csv
 
 ```sh
 tokenwatch [options]
+tokenwatch init
 tokenwatch sessions
 tokenwatch doctor
 tokenwatch pricing
@@ -134,6 +139,7 @@ tokenwatch export [export-options]
 
 | Option                     | Description                                                                              |
 | -------------------------- | ---------------------------------------------------------------------------------------- |
+| `init`, `setup`            | Create or update `~/.tokenwatch/config.json` for first-run defaults.                     |
 | `sessions`                 | List detected local Claude Code and Codex CLI session paths.                             |
 | `doctor`                   | Validate local log discovery, config, pricing freshness, and suggested commands.         |
 | `pricing`                  | Show bundled pricing freshness, source URLs, and model rates.                            |
@@ -176,6 +182,8 @@ Environment variables:
 | `CLAUDE_HOME` | Claude Code home directory checked before `~/.claude`. |
 
 Run `tokenwatch doctor` after installation or when prompt rows do not appear. It is read-only: it reports detected Claude Code and Codex CLI storage, prompt visibility, config status, pricing freshness, warnings, and suggested `tokenwatch --session ...` commands. Exit codes are `0` for ready, `1` for usable but degraded, `2` when no supported logs are found, and `3` for config/path errors.
+
+Run `tokenwatch init` to create or update `~/.tokenwatch/config.json`. In a terminal it prompts for prompt redaction and budgets; in scripts use flags such as `tokenwatch init --non-interactive --redact-prompts --daily-budget 5 --weekly-budget 25`. `tokenwatch setup` is an alias. The command writes only tokenwatch's own config file and never modifies Claude Code or Codex CLI storage.
 
 
 Optional configuration:

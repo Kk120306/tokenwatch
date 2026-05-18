@@ -8,6 +8,7 @@ import { addSpend, loadSpend, resetSpend, type SpendRecord } from "./budget.js";
 import { hasBudget, loadConfig, type TokenwatchConfig } from "./config.js";
 import { runDoctor } from "./doctor.js";
 import { runExport } from "./export/runner.js";
+import { runInit } from "./init.js";
 import { loadPricing, renderPricingInfo } from "./pricing.js";
 import { redactParsedTurnPrompt } from "./privacy.js";
 import { detectSessionSummary, renderSessionList, resolveSessionSelection } from "./sessions.js";
@@ -45,6 +46,10 @@ async function main(argv: readonly string[]): Promise<void> {
   }
   if (argv[0] === "doctor") {
     runDoctor(getPackageVersion());
+    return;
+  }
+  if (argv[0] === "init" || argv[0] === "setup") {
+    await runInit(argv.slice(1), getPackageVersion());
     return;
   }
 
@@ -298,6 +303,7 @@ function printHelp(): void {
 
 Usage:
   tokenwatch export [--md] [--csv] [--json] [--redact-prompts] [--session <path>] [--session-source <claude|codex>] [--out <dir>]
+  tokenwatch init [--redact-prompts] [--daily-budget <amount>] [--weekly-budget <amount>]
   tokenwatch sessions
   tokenwatch doctor
   tokenwatch pricing
@@ -305,6 +311,7 @@ Usage:
 
 Options:
   export               Write Markdown, CSV, and/or JSON reports without launching the TUI
+  init, setup          Create or update ~/.tokenwatch/config.json for first-run defaults
   sessions             List detected local Claude Code and Codex CLI sessions
   doctor               Validate local log discovery, config, pricing freshness, and suggested commands
   pricing              Show bundled pricing freshness, sources, and model rates

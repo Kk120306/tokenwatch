@@ -11,6 +11,7 @@ import {
   resetSpend
 } from "../dist/budget.js";
 import { loadConfig } from "../dist/config.js";
+import { createInitReport } from "../dist/init.js";
 
 test("budget config loads defaults and validates configured values", async () => {
   const dir = join(tmpdir(), `tokenwatch-config-${Date.now()}`);
@@ -90,4 +91,47 @@ test("budget projections extrapolate current spend rate", () => {
 
   assert.equal(getProjectedDailySpend(6, start, now), 24);
   assert.equal(getProjectedWeeklySpend(6, start, now), 168);
+});
+
+test("init creates and updates tokenwatch config without touching source logs", async () => {
+  const dir = join(tmpdir(), `tokenwatch-init-${Date.now()}`);
+  try {
+    const created = createInitReport({
+      baseDir: dir,
+      redactPrompts: true,
+      dailyBudgetUsd: 5,
+      weeklyBudgetUsd: 25,
+      alertAt: 0.75
+    }, "0.1.0");
+
+    assert.equal(created.status, "created");
+    assert.equal(created.wrote, true);
+    assert.match(created.text, /tokenwatch init/);
+    assert.match(created.text, /Redaction: enabled/);
+    assert.deepEqual(loadConfig(dir), {
+      dailyBudgetUsd: 5,
+      weeklyBudgetUsd: 25,
+      alertAt: 0.75,
+      topicRules: [],
+      redactPromptText: true
+    });
+
+    const unchanged = createInitReport({ baseDir: dir }, "0.1.0");
+    assert.equal(unchanged.status, "exists");
+    assert.equal(unchanged.wrote, false);
+    assert.match(unchanged.text, /Write: unchanged/);
+
+    const updated = createInitReport({ baseDir: dir, showPrompts: true, weeklyBudgetUsd: 50 }, "0.1.0");
+    assert.equal(updated.status, "updated");
+    assert.equal(updated.wrote, true);
+    assert.deepEqual(loadConfig(dir), {
+      dailyBudgetUsd: 5,
+      weeklyBudgetUsd: 50,
+      alertAt: 0.75,
+      topicRules: [],
+      redactPromptText: false
+    });
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
