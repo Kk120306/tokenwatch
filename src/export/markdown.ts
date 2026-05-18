@@ -7,13 +7,8 @@ import {
   formatTokenCount,
   formatUsdApprox
 } from "./format.js";
+import type { ExportGroupSummary, ExportPromptHighlight } from "./format.js";
 import type { GoalMetadata, ParsedTurn, PricingTable } from "../types.js";
-
-interface GroupRow {
-  name: string;
-  prompts: number;
-  total: number;
-}
 
 export function renderMarkdownReport(
   turns: readonly ParsedTurn[],
@@ -39,16 +34,26 @@ export function renderMarkdownReport(
     ] : []),
     "",
     "## By model",
-    "| Model | Prompts | Total | Avg/prompt |",
-    "|---|---|---|---|",
-    ...renderGroupRows(groupBy(summary.turns, (turn) => turn.model)),
+    "| Model | Prompts | Total | Avg/prompt | Share |",
+    "|---|---|---|---|---|",
+    ...renderGroupRows(summary.byModel),
     "",
-    renderRecommendation(groupBy(summary.turns, (turn) => turn.model)),
+    renderRecommendation(summary.byModel),
+    "",
+    "## By source",
+    "| Source | Prompts | Total | Avg/prompt | Share |",
+    "|---|---|---|---|---|",
+    ...renderGroupRows(summary.bySource),
     "",
     "## By topic",
-    "| Topic | Prompts | Total | Avg/prompt |",
-    "|---|---|---|---|",
-    ...renderGroupRows(groupBy(summary.turns, (turn) => turn.topic ?? "uncategorized")),
+    "| Topic | Prompts | Total | Avg/prompt | Share |",
+    "|---|---|---|---|---|",
+    ...renderGroupRows(summary.byTopic),
+    "",
+    "## Costliest prompts",
+    "| # | Source | Topic | Model | Total | Share | Prompt |",
+    "|---|---|---|---|---|---|---|",
+    ...renderTopPromptRows(summary.topPrompts),
     "",
     "## Prompt log"
   ];
@@ -67,32 +72,25 @@ export function renderMarkdownReport(
   return `${lines.join("\n").trimEnd()}\n`;
 }
 
-function groupBy(
-  turns: readonly ParsedTurn[],
-  getName: (turn: ParsedTurn) => string
-): GroupRow[] {
-  const groups = new Map<string, GroupRow>();
-  for (const turn of turns) {
-    const name = getName(turn);
-    const existing = groups.get(name) ?? { name, prompts: 0, total: 0 };
-    existing.prompts += 1;
-    existing.total += turn.costUsd;
-    groups.set(name, existing);
-  }
-  return [...groups.values()].sort((a, b) => b.total - a.total || b.prompts - a.prompts || a.name.localeCompare(b.name));
-}
-
-function renderGroupRows(rows: readonly GroupRow[]): string[] {
+function renderGroupRows(rows: readonly ExportGroupSummary[]): string[] {
   if (rows.length === 0) {
-    return ["| none | 0 | ~$0.00 | ~$0.000 |"];
+    return ["| none | 0 | ~$0.00 | ~$0.000 | 0% |"];
   }
   return rows.map((row) => {
-    const average = row.prompts > 0 ? row.total / row.prompts : 0;
-    return `| ${escapeTableCell(row.name)} | ${row.prompts} | ${formatUsdApprox(row.total)} | ${formatUsdApprox(average, 3)} |`;
+    return `| ${escapeTableCell(row.name)} | ${row.prompts} | ${formatUsdApprox(row.costUsd)} | ${formatUsdApprox(row.averageCostUsd, 3)} | ${Math.round(row.costSharePct)}% |`;
   });
 }
 
-function renderRecommendation(rows: readonly GroupRow[]): string {
+function renderTopPromptRows(prompts: readonly ExportPromptHighlight[]): string[] {
+  if (prompts.length === 0) {
+    return ["| none | none | none | none | ~$0.00 | 0% | *prompt text unavailable* |"];
+  }
+  return prompts.map((prompt) => (
+    `| ${prompt.index} | ${prompt.source} ${prompt.sourceFormat} | ${escapeTableCell(prompt.topic ?? "uncategorized")} | ${escapeTableCell(prompt.model)} | ${formatUsdApprox(prompt.costUsd)} | ${Math.round(prompt.costSharePct)}% | ${escapeTableCell(formatPromptText(prompt.promptText))} |`
+  ));
+}
+
+function renderRecommendation(rows: readonly ExportGroupSummary[]): string {
   if (rows.length < 2) {
     return "**Recommendation:** single-model session; no cheaper model comparison available";
   }
@@ -105,8 +103,8 @@ function renderRecommendation(rows: readonly GroupRow[]): string {
   return `**Recommendation:** ${cheapest.name} is ${ratio}x cheaper on average than ${costliest.name}`;
 }
 
-function averageCost(row: GroupRow): number {
-  return row.prompts > 0 ? row.total / row.prompts : 0;
+function averageCost(row: ExportGroupSummary): number {
+  return row.averageCostUsd;
 }
 
 function escapeTableCell(value: string): string {

@@ -1,4 +1,4 @@
-import { createExportSummary } from "./format.js";
+import { createExportSummary, type ExportGroupSummary, type ExportPromptHighlight } from "./format.js";
 import type { GoalMetadata, ParsedTurn, PricingTable, PromptVisibility, SessionSource, SessionTotal, TurnSourceFormat } from "../types.js";
 
 interface JsonReport {
@@ -14,21 +14,13 @@ interface JsonReport {
       hitRate: number;
     };
     goal: GoalMetadata | null;
+    mostExpensivePrompt: ExportPromptHighlight | null;
   };
-  byModel: JsonGroup[];
-  byTopic: JsonGroup[];
+  byModel: ExportGroupSummary[];
+  byTopic: ExportGroupSummary[];
+  bySource: ExportGroupSummary[];
+  topPrompts: ExportPromptHighlight[];
   turns: JsonTurn[];
-}
-
-interface JsonGroup {
-  name: string;
-  prompts: number;
-  inputTokens: number;
-  cachedTokens: number;
-  outputTokens: number;
-  reasoningTokens: number;
-  costUsd: number;
-  averageCostUsd: number;
 }
 
 interface JsonTurn {
@@ -79,10 +71,13 @@ export function renderJsonReport(
         savingsRate: summary.cacheSavingsRate,
         hitRate: summary.cacheHitRate
       },
-      goal: latestGoal(summary.turns)
+      goal: latestGoal(summary.turns),
+      mostExpensivePrompt: summary.mostExpensivePrompt
     },
-    byModel: groupBy(summary.turns, (turn) => turn.model),
-    byTopic: groupBy(summary.turns, (turn) => turn.topic ?? "uncategorized"),
+    byModel: summary.byModel,
+    byTopic: summary.byTopic,
+    bySource: summary.bySource,
+    topPrompts: summary.topPrompts,
     turns: summary.turns.map((turn, index) => ({
       index: index + 1,
       timestamp: turn.timestampIso ?? turn.timestamp.toISOString(),
@@ -114,36 +109,6 @@ export function renderJsonReport(
   };
 
   return `${JSON.stringify(report, null, 2)}\n`;
-}
-
-function groupBy(
-  turns: readonly ParsedTurn[],
-  getName: (turn: ParsedTurn) => string
-): JsonGroup[] {
-  const groups = new Map<string, JsonGroup>();
-  for (const turn of turns) {
-    const name = getName(turn);
-    const existing = groups.get(name) ?? {
-      name,
-      prompts: 0,
-      inputTokens: 0,
-      cachedTokens: 0,
-      outputTokens: 0,
-      reasoningTokens: 0,
-      costUsd: 0,
-      averageCostUsd: 0
-    };
-    existing.prompts += 1;
-    existing.inputTokens += turn.inputTokens;
-    existing.cachedTokens += turn.cachedTokens;
-    existing.outputTokens += turn.outputTokens;
-    existing.reasoningTokens += turn.reasoningTokens;
-    existing.costUsd += turn.costUsd;
-    existing.averageCostUsd = existing.prompts > 0 ? existing.costUsd / existing.prompts : 0;
-    groups.set(name, existing);
-  }
-
-  return [...groups.values()].sort((a, b) => b.costUsd - a.costUsd || b.prompts - a.prompts || a.name.localeCompare(b.name));
 }
 
 function latestGoal(turns: readonly ParsedTurn[]): GoalMetadata | null {

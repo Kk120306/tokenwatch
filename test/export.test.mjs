@@ -53,7 +53,11 @@ test("Markdown report renders grouped totals, prompt fallback, and chronological
   assert.match(report, /\*\*Date:\*\* Monday May 18 2026 \| \*\*Duration:\*\* 1h 0m/);
   assert.match(report, /## By model/);
   assert.match(report, /\| gpt-5\.5 \| 1 \| ~\$0\.03 \| ~\$0\.031 \|/);
+  assert.match(report, /## By source/);
+  assert.match(report, /\| codex \| 1 \| ~\$0\.03 \| ~\$0\.031 \| 99% \|/);
   assert.match(report, /## By topic/);
+  assert.match(report, /## Costliest prompts/);
+  assert.match(report, /\| 1 \| codex jsonl \| debugging \| gpt-5\.5 \| ~\$0\.03 \| 99% \| fix the auth middleware not passing headers/);
   assert.match(report, /### #1 — debugging — gpt-5\.5 — ~\$0\.03 — moderate/);
   assert.match(report, /\*\*Source:\*\* codex jsonl \| \*\*Prompt visibility:\*\* prompt text paired with usage/);
   assert.match(report, /> fix the auth middleware not passing headers/);
@@ -137,8 +141,14 @@ test("JSON report exposes stable summary, grouping, and prompt fields", () => {
   assert.equal(report.summary.endedAt, "2026-05-18T10:05:00.000Z");
   assert.equal(report.summary.totals.inputTokens, 400);
   assert.equal(report.summary.goal.goalId, "goal-json");
+  assert.equal(report.summary.mostExpensivePrompt.index, 2);
+  assert.equal(report.summary.mostExpensivePrompt.promptVisibility, "usage-only");
   assert.deepEqual(report.byModel.map((group) => [group.name, group.prompts]), [["gpt-5.5", 2]]);
   assert.deepEqual(report.byTopic.map((group) => [group.name, group.prompts]), [["uncategorized", 1], ["debugging", 1]]);
+  assert.deepEqual(report.bySource.map((group) => [group.name, group.prompts]), [["codex", 2]]);
+  assert.equal(report.bySource[0].costSharePct, 100);
+  assert.equal(report.topPrompts.length, 2);
+  assert.equal(report.topPrompts[0].index, 2);
   assert.deepEqual(report.turns[0].tokens, {
     input: 100,
     cached: 25,

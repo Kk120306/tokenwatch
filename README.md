@@ -122,7 +122,7 @@ tokenwatch export --csv
 - Prompt Privacy: Replace captured prompt text with `[redacted]` in the dashboard and reports.
 - Model Recommendations: Compare observed model costs by topic after enough prompts are available.
 - Goal Metadata: Show Codex goal information when present in local Codex state.
-- Report Export: Generate Markdown, CSV, and JSON reports for detected or explicit sessions.
+- Report Export: Generate Markdown, CSV, and JSON reports with source breakdowns and costliest prompt highlights.
 - Local-First Operation: No network calls, no remote pricing lookup, and no mutation of AI CLI state.
 
 ## CLI Reference
@@ -220,11 +220,11 @@ tokenwatch export
 Export mode reads the most recent detected session and writes reports under `./tokenwatch-exports` by default.
 Pass `--session <path>` to export a specific session from `tokenwatch sessions`, and add `--session-source` when the path is an ambiguous JSONL file.
 
-Markdown reports include totals, model breakdowns, topic breakdowns, cache savings, prompt excerpts, and goal metadata when available.
+Markdown reports include totals, model breakdowns, source breakdowns, topic breakdowns, cache savings, costliest prompt highlights, prompt excerpts, and goal metadata when available.
 
 CSV reports include prompt-level rows plus a session summary row for spreadsheet analysis.
 
-JSON reports include the same prompt-level data in a stable `schemaVersion: 1` structure for scripts and dashboards. Each prompt row includes `sourceFormat` and `promptVisibility` so downstream tools can distinguish directly paired prompt text, best-effort prompt attribution, and usage-only rows.
+JSON reports include the same prompt-level data in a stable `schemaVersion: 1` structure for scripts and dashboards. Summary fields include the most expensive prompt, top prompt highlights, and model, topic, and source groups with cost-share percentages. Each prompt row includes `sourceFormat` and `promptVisibility` so downstream tools can distinguish directly paired prompt text, best-effort prompt attribution, and usage-only rows.
 
 ## Pricing
 

@@ -1,7 +1,37 @@
 import { estimateCacheSavingsUsd } from "../pricing.js";
-import type { ParsedTurn, PricingTable, SessionTotal } from "../types.js";
+import type { ParsedTurn, PricingTable, SessionSource, SessionTotal, TurnSourceFormat } from "../types.js";
 
 export type CostLabel = "trivial" | "cheap" | "moderate" | "expensive" | "very expensive";
+
+export interface ExportGroupSummary {
+  name: string;
+  prompts: number;
+  inputTokens: number;
+  cachedTokens: number;
+  outputTokens: number;
+  reasoningTokens: number;
+  costUsd: number;
+  averageCostUsd: number;
+  costSharePct: number;
+}
+
+export interface ExportPromptHighlight {
+  index: number;
+  timestamp: string;
+  model: string;
+  source: SessionSource;
+  sourceFormat: TurnSourceFormat;
+  promptVisibility: ParsedTurn["promptVisibility"];
+  topic: string | null;
+  promptText: string | null;
+  inputTokens: number;
+  cachedTokens: number;
+  outputTokens: number;
+  reasoningTokens: number;
+  costUsd: number;
+  costSharePct: number;
+  cacheHitRate: number;
+}
 
 export interface ExportSummary {
   turns: ParsedTurn[];
@@ -9,6 +39,11 @@ export interface ExportSummary {
   cacheSavingsUsd: number;
   cacheSavingsRate: number;
   cacheHitRate: number;
+  byModel: ExportGroupSummary[];
+  byTopic: ExportGroupSummary[];
+  bySource: ExportGroupSummary[];
+  topPrompts: ExportPromptHighlight[];
+  mostExpensivePrompt: ExportPromptHighlight | null;
 }
 
 export function createExportSummary(
@@ -33,13 +68,84 @@ export function createExportSummary(
     (sum, turn) => sum + estimateCacheSavingsUsd(turn.model, turn.cachedTokens, pricing),
     0
   );
+  const topPrompts = createPromptHighlights(sortedTurns, total.costUsd, 5);
   return {
     turns: sortedTurns,
     total,
     cacheSavingsUsd,
     cacheSavingsRate: percentage(cacheSavingsUsd, total.costUsd + cacheSavingsUsd),
-    cacheHitRate: percentage(total.cachedInputTokens, total.inputTokens)
+    cacheHitRate: percentage(total.cachedInputTokens, total.inputTokens),
+    byModel: groupBy(sortedTurns, total.costUsd, (turn) => turn.model),
+    byTopic: groupBy(sortedTurns, total.costUsd, (turn) => turn.topic ?? "uncategorized"),
+    bySource: groupBy(sortedTurns, total.costUsd, (turn) => turn.source),
+    topPrompts,
+    mostExpensivePrompt: topPrompts[0] ?? null
   };
+}
+
+export function createPromptHighlights(
+  turns: readonly ParsedTurn[],
+  totalCostUsd: number,
+  limit: number
+): ExportPromptHighlight[] {
+  const indexes = new Map<ParsedTurn, number>();
+  for (const [index, turn] of turns.entries()) {
+    indexes.set(turn, index + 1);
+  }
+
+  return [...turns]
+    .sort((a, b) => b.costUsd - a.costUsd || a.timestamp.getTime() - b.timestamp.getTime())
+    .slice(0, Math.max(0, limit))
+    .map((turn) => ({
+      index: indexes.get(turn) ?? 0,
+      timestamp: turn.timestampIso ?? turn.timestamp.toISOString(),
+      model: turn.model,
+      source: turn.source,
+      sourceFormat: turn.sourceFormat,
+      promptVisibility: turn.promptVisibility,
+      topic: turn.topic,
+      promptText: turn.promptText,
+      inputTokens: turn.inputTokens,
+      cachedTokens: turn.cachedTokens,
+      outputTokens: turn.outputTokens,
+      reasoningTokens: turn.reasoningTokens,
+      costUsd: turn.costUsd,
+      costSharePct: percentage(turn.costUsd, totalCostUsd),
+      cacheHitRate: percentage(turn.cachedTokens, turn.inputTokens)
+    }));
+}
+
+function groupBy(
+  turns: readonly ParsedTurn[],
+  totalCostUsd: number,
+  getName: (turn: ParsedTurn) => string
+): ExportGroupSummary[] {
+  const groups = new Map<string, ExportGroupSummary>();
+  for (const turn of turns) {
+    const name = getName(turn);
+    const existing = groups.get(name) ?? {
+      name,
+      prompts: 0,
+      inputTokens: 0,
+      cachedTokens: 0,
+      outputTokens: 0,
+      reasoningTokens: 0,
+      costUsd: 0,
+      averageCostUsd: 0,
+      costSharePct: 0
+    };
+    existing.prompts += 1;
+    existing.inputTokens += turn.inputTokens;
+    existing.cachedTokens += turn.cachedTokens;
+    existing.outputTokens += turn.outputTokens;
+    existing.reasoningTokens += turn.reasoningTokens;
+    existing.costUsd += turn.costUsd;
+    existing.averageCostUsd = existing.prompts > 0 ? existing.costUsd / existing.prompts : 0;
+    existing.costSharePct = percentage(existing.costUsd, totalCostUsd);
+    groups.set(name, existing);
+  }
+
+  return [...groups.values()].sort((a, b) => b.costUsd - a.costUsd || b.prompts - a.prompts || a.name.localeCompare(b.name));
 }
 
 export function costLabel(costUsd: number): CostLabel {
