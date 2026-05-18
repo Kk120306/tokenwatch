@@ -29,6 +29,10 @@ interface CodexJsonlParser {
   parseLine(line: string): TokenTurn | null;
 }
 
+interface CodexSqliteParser {
+  parseRow(row: CodexLogRow): TokenTurn | null;
+}
+
 interface ActiveCodexPrompt {
   updateKey: string;
   promptText: string;
@@ -64,6 +68,34 @@ const defaultJsonlParser = createCodexJsonlParser();
 
 export function parseCodexLogRow(row: CodexLogRow): TokenTurn | null {
   return parseCodexFeedbackLogBody(row.feedback_log_body);
+}
+
+export function createCodexSqliteParser(): CodexSqliteParser {
+  let pendingPromptText: string | null = null;
+
+  return {
+    parseRow(row: CodexLogRow): TokenTurn | null {
+      const event = parseCodexFeedbackEvent(row.feedback_log_body);
+      if (!event) {
+        return null;
+      }
+
+      const promptText = findUserPromptText(event);
+      if (promptText) {
+        pendingPromptText = promptText;
+        return null;
+      }
+
+      const responseCompleted = findResponseCompletedEvent(event);
+      const turn = responseCompleted
+        ? turnFromResponseCompletedEvent(responseCompleted, pendingPromptText)
+        : null;
+      if (turn) {
+        pendingPromptText = null;
+      }
+      return turn;
+    }
+  };
 }
 
 export function createCodexJsonlParser(options: CodexJsonlParserOptions = {}): CodexJsonlParser {
@@ -135,6 +167,12 @@ export function parseCodexJsonlLine(line: string): TokenTurn | null {
 }
 
 export function parseCodexFeedbackLogBody(body: string | null): TokenTurn | null {
+  const event = parseCodexFeedbackEvent(body);
+  const responseCompleted = findResponseCompletedEvent(event);
+  return responseCompleted ? turnFromResponseCompletedEvent(responseCompleted) : null;
+}
+
+function parseCodexFeedbackEvent(body: string | null): unknown | null {
   if (!body) {
     return null;
   }
@@ -144,17 +182,17 @@ export function parseCodexFeedbackLogBody(body: string | null): TokenTurn | null
     return null;
   }
 
-  let event: CodexResponseCompletedEvent;
   try {
-    event = JSON.parse(payload) as CodexResponseCompletedEvent;
+    return JSON.parse(payload) as unknown;
   } catch {
     return null;
   }
-
-  return turnFromResponseCompletedEvent(event);
 }
 
-function turnFromResponseCompletedEvent(event: CodexResponseCompletedEvent): TokenTurn | null {
+function turnFromResponseCompletedEvent(
+  event: CodexResponseCompletedEvent,
+  promptText: string | null = null
+): TokenTurn | null {
   if (event.type !== RESPONSE_COMPLETED_TYPE) {
     return null;
   }
@@ -187,7 +225,7 @@ function turnFromResponseCompletedEvent(event: CodexResponseCompletedEvent): Tok
     model: event.response?.model ?? UNKNOWN_MODEL,
     timestamp: new Date(),
     timestampIso: null,
-    promptText: null,
+    promptText,
     usage: normalizedUsage
   };
 }
@@ -305,10 +343,30 @@ function extractUserPromptText(payload: NonNullable<CodexRolloutEntry["payload"]
 }
 
 function extractPromptText(message: unknown): string | null {
-  if (typeof message !== "string") {
-    return null;
+  if (typeof message === "string") {
+    return normalizePromptText(message);
   }
-  const trimmed = message.trim();
+
+  if (Array.isArray(message)) {
+    const textParts: string[] = [];
+    for (const part of message) {
+      if (!part || typeof part !== "object") {
+        return null;
+      }
+      const candidate = part as { type?: unknown; text?: unknown };
+      const type = typeof candidate.type === "string" ? candidate.type : "";
+      if ((type === "input_text" || type === "text") && typeof candidate.text === "string") {
+        textParts.push(candidate.text);
+      }
+    }
+    return normalizePromptText(textParts.join("\n"));
+  }
+
+  return null;
+}
+
+function normalizePromptText(text: string): string | null {
+  const trimmed = text.trim();
   return trimmed.length > 0 ? trimmed : null;
 }
 
@@ -334,6 +392,59 @@ function findResponseCompletedEvent(value: unknown): CodexResponseCompletedEvent
     const event = findResponseCompletedEvent(nested);
     if (event) {
       return event;
+    }
+  }
+
+  return null;
+}
+
+function findUserPromptText(value: unknown): string | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const candidate = value as {
+    type?: unknown;
+    role?: unknown;
+    source?: unknown;
+    payload?: unknown;
+    event?: unknown;
+    message?: unknown;
+    content?: unknown;
+  };
+
+  if (candidate.type === EVENT_MSG_TYPE && candidate.payload) {
+    return findUserPromptText(candidate.payload);
+  }
+
+  if (candidate.type === USER_MESSAGE_TYPE) {
+    return extractUserPromptText({
+      type: USER_MESSAGE_TYPE,
+      message: candidate.message,
+      role: candidate.role,
+      source: candidate.source
+    });
+  }
+
+  if (candidate.type === "response_item" && candidate.payload) {
+    return findUserPromptText(candidate.payload);
+  }
+
+  if (candidate.type === "message" && candidate.role === "user") {
+    const promptText = extractPromptText(candidate.content);
+    if (!promptText || promptText.length <= MIN_USER_PROMPT_LENGTH) {
+      return null;
+    }
+    if (INTERNAL_PROMPT_PATTERNS.some((pattern) => pattern.test(promptText))) {
+      return null;
+    }
+    return promptText;
+  }
+
+  for (const nested of [candidate.payload, candidate.event]) {
+    const promptText = findUserPromptText(nested);
+    if (promptText) {
+      return promptText;
     }
   }
 

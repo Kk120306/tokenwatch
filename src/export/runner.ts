@@ -6,7 +6,7 @@ import Database from "better-sqlite3";
 import { detectClaudeStorage, detectCodexStorage } from "../detect.js";
 import { loadPricing } from "../pricing.js";
 import { createClaudeParser } from "../parsers/claude.js";
-import { createCodexJsonlParser } from "../parsers/codex.js";
+import { createCodexJsonlParser, createCodexSqliteParser } from "../parsers/codex.js";
 import { createParsedTurn } from "../turns.js";
 import { findMostRecentSessionFile, inspectPath, readCodexTurnsSince } from "../watcher.js";
 import { renderCsvReport } from "./csv.js";
@@ -172,7 +172,8 @@ function readCodexSqliteTurns(path: string): TokenTurn[] {
   let db: Database.Database | null = null;
   try {
     db = new Database(path, { readonly: true, fileMustExist: true });
-    return readCodexTurnsSince(db, 0).turns;
+    const parser = createCodexSqliteParser();
+    return readCodexTurnsSince(db, 0, parser.parseRow).turns;
   } finally {
     if (db?.open) {
       db.close();

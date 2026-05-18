@@ -5,7 +5,7 @@ import { scoreCacheEfficiency } from "../dist/cache-score.js";
 import { classifyPromptTopic, resolveTurnTopic } from "../dist/classifier.js";
 import { getContextUsagePct, getContextWindow } from "../dist/context-windows.js";
 import { createClaudeParser } from "../dist/parsers/claude.js";
-import { createCodexJsonlParser, parseCodexFeedbackLogBody, parseCodexJsonlLine, parseCodexLogRow } from "../dist/parsers/codex.js";
+import { createCodexJsonlParser, createCodexSqliteParser, parseCodexFeedbackLogBody, parseCodexJsonlLine, parseCodexLogRow } from "../dist/parsers/codex.js";
 import { createParsedTurn } from "../dist/turns.js";
 
 test("Claude parser extracts assistant message usage", async () => {
@@ -96,6 +96,35 @@ test("Codex parser extracts response.completed usage from SQLite log rows", asyn
     outputTokens: 102,
     reasoningTokens: 0
   });
+});
+
+test("Codex SQLite parser attaches preceding user prompt text to response usage", () => {
+  const parser = createCodexSqliteParser();
+
+  assert.equal(parser.parseRow({
+    rowid: 1,
+    feedback_log_body: 'Received message {"type":"event_msg","payload":{"type":"user_message","message":"fix the sqlite prompt attribution path"}}'
+  }), null);
+
+  const turn = parser.parseRow({
+    rowid: 2,
+    feedback_log_body: 'Received message {"type":"response.completed","response":{"model":"gpt-5.5","usage":{"input_tokens":120,"input_tokens_details":{"cached_tokens":20},"output_tokens":30,"reasoning_output_tokens":5}}}'
+  });
+
+  assert.equal(turn.source, "codex");
+  assert.equal(turn.promptText, "fix the sqlite prompt attribution path");
+  assert.deepEqual(turn.usage, {
+    inputTokens: 120,
+    cachedInputTokens: 20,
+    outputTokens: 30,
+    reasoningTokens: 5
+  });
+
+  const nextTurn = parser.parseRow({
+    rowid: 3,
+    feedback_log_body: 'Received message {"type":"response.completed","response":{"model":"gpt-5.5","usage":{"input_tokens":10,"output_tokens":2}}}'
+  });
+  assert.equal(nextTurn.promptText, null);
 });
 
 test("Codex parser supports legacy cached_input_tokens shape in response usage", () => {

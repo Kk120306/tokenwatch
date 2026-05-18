@@ -5,6 +5,7 @@ import { join } from "node:path";
 import Database from "better-sqlite3";
 import test from "node:test";
 import { addToTotal, createEmptyTotal, formatSessionTotal, formatTurn } from "../dist/display.js";
+import { createCodexSqliteParser } from "../dist/parsers/codex.js";
 import { estimateCostUsd, loadPricing } from "../dist/pricing.js";
 import { findMostRecentSessionFile, getLatestCodexRowId, inspectPath, readCodexTurnsSince, startTokenWatcher } from "../dist/watcher.js";
 
@@ -111,15 +112,17 @@ test("Codex SQLite polling reads only response.completed rows newer than last ro
 
   insert.run("log", "Received message {\"type\":\"response.output_item.done\"}");
   const baseline = getLatestCodexRowId(db);
+  insert.run("log", 'Received message {"type":"event_msg","payload":{"type":"user_message","message":"fix the sqlite polling prompt mapping"}}');
   insert.run("log", 'Received message {"type":"response.completed","response":{"model":"gpt-5.5","usage":{"input_tokens":120,"input_tokens_details":{"cached_tokens":20},"output_tokens":30}}}');
   insert.run("other", 'Received message {"type":"response.completed","response":{"model":"gpt-5.5","usage":{"input_tokens":999,"output_tokens":999}}}');
 
-  const firstPoll = readCodexTurnsSince(db, baseline);
-  assert.equal(firstPoll.lastRowId, 3);
+  const parser = createCodexSqliteParser();
+  const firstPoll = readCodexTurnsSince(db, baseline, parser.parseRow);
+  assert.equal(firstPoll.lastRowId, 4);
   assert.equal(firstPoll.turns.length, 1);
   assert.equal(firstPoll.turns[0].source, "codex");
   assert.equal(firstPoll.turns[0].model, "gpt-5.5");
-  assert.equal(firstPoll.turns[0].promptText, null);
+  assert.equal(firstPoll.turns[0].promptText, "fix the sqlite polling prompt mapping");
   assert.ok(firstPoll.turns[0].timestamp instanceof Date);
   assert.deepEqual(firstPoll.turns[0].usage, {
     inputTokens: 120,
@@ -128,9 +131,22 @@ test("Codex SQLite polling reads only response.completed rows newer than last ro
     reasoningTokens: 0
   });
 
-  const secondPoll = readCodexTurnsSince(db, firstPoll.lastRowId);
-  assert.equal(secondPoll.lastRowId, 3);
-  assert.deepEqual(secondPoll.turns, []);
+  insert.run("log", 'Received message {"type":"event_msg","payload":{"type":"user_message","message":"continue mapping prompts across polls"}}');
+  const promptOnlyPoll = readCodexTurnsSince(db, firstPoll.lastRowId, parser.parseRow);
+  assert.equal(promptOnlyPoll.lastRowId, 5);
+  assert.deepEqual(promptOnlyPoll.turns, []);
+
+  insert.run("log", 'Received message {"type":"response.completed","response":{"model":"gpt-5.5","usage":{"input_tokens":10,"output_tokens":2}}}');
+  const secondPoll = readCodexTurnsSince(db, promptOnlyPoll.lastRowId, parser.parseRow);
+  assert.equal(secondPoll.lastRowId, 6);
+  assert.equal(secondPoll.turns.length, 1);
+  assert.equal(secondPoll.turns[0].promptText, "continue mapping prompts across polls");
+  assert.deepEqual(secondPoll.turns[0].usage, {
+    inputTokens: 10,
+    cachedInputTokens: 0,
+    outputTokens: 2,
+    reasoningTokens: 0
+  });
 
   db.close();
 });

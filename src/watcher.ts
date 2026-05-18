@@ -4,7 +4,7 @@ import Database from "better-sqlite3";
 import chokidar, { type FSWatcher } from "chokidar";
 import { detectClaudeStorage, detectCodexStorage } from "./detect.js";
 import { createClaudeParser } from "./parsers/claude.js";
-import { createCodexJsonlParser, parseCodexLogRow } from "./parsers/codex.js";
+import { createCodexJsonlParser, createCodexSqliteParser, parseCodexLogRow } from "./parsers/codex.js";
 import type {
   ActiveSessionFile,
   CodexLogRow,
@@ -21,6 +21,7 @@ import type {
 type SqliteDatabase = Database.Database;
 type LineParser = (line: string) => TokenTurn | null;
 type LineParserFactory = () => LineParser;
+type CodexSqliteRowParser = (row: CodexLogRow) => TokenTurn | null;
 type JsonlInitialReadMode = "tail" | "all";
 
 const DUPLICATE_TURN_WINDOW_MS = 5000;
@@ -272,7 +273,8 @@ export function getLatestCodexRowId(db: SqliteDatabase): number {
 
 export function readCodexTurnsSince(
   db: SqliteDatabase,
-  lastRowId: number
+  lastRowId: number,
+  parseRow: CodexSqliteRowParser = parseCodexLogRow
 ): CodexPollResult {
   const maxRowId = getLatestCodexRowId(db);
   if (maxRowId <= lastRowId) {
@@ -286,14 +288,14 @@ export function readCodexTurnsSince(
       WHERE id > ?
         AND id <= ?
         AND target = 'log'
-        AND feedback_log_body LIKE 'Received message {"type":"response.completed"%'
+        AND feedback_log_body LIKE 'Received message %'
       ORDER BY id ASC
     `)
     .all(lastRowId, maxRowId);
 
   return {
     lastRowId: maxRowId,
-    turns: rows.map(parseCodexLogRow).filter((turn): turn is TokenTurn => turn !== null)
+    turns: rows.map(parseRow).filter((turn): turn is TokenTurn => turn !== null)
   };
 }
 
@@ -467,6 +469,7 @@ function startCodexSqlitePoller(
   let db: SqliteDatabase | null = null;
   let lastRowId = 0;
   let warned = false;
+  const parser = createCodexSqliteParser();
 
   const closeDatabase = (): void => {
     if (db?.open) {
@@ -508,7 +511,7 @@ function startCodexSqlitePoller(
     }
 
     try {
-      const result = readCodexTurnsSince(database, lastRowId);
+      const result = readCodexTurnsSince(database, lastRowId, parser.parseRow);
       lastRowId = result.lastRowId;
       for (const turn of result.turns) {
         onTurn(turn);
