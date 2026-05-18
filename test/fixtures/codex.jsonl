@@ -1,0 +1,4 @@
+{"type":"message","text":"ignored"}
+{"type":"token_count","turn_context":{"model":"gpt-5"},"token_count":{"input_tokens":1000,"cached_input_tokens":500,"output_tokens":200}}
+{"type":"token_count","turn_context":{"model":"gpt-5"},"token_count":{"input_tokens":1400,"cached_input_tokens":700,"output_tokens":350}}
+{"event":"token_count","turn_context":{"model":"gpt-5-mini"},"usage":{"input_tokens":1400,"cached_input_tokens":700,"output_tokens":350}}

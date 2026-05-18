@@ -1,0 +1,4 @@
+{"type":"user","message":{"content":"hello"}}
+{"type":"assistant","message":{"model":"claude-sonnet-4-6","usage":{"input_tokens":1842,"cache_read_input_tokens":1200,"output_tokens":347}}}
+{"type":"assistant","message":{"content":[]}}
+not json

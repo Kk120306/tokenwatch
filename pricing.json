@@ -1,0 +1,32 @@
+{
+  "claude-opus-4-6": {
+    "inputPerMillion": 15,
+    "cachedInputPerMillion": 1.5,
+    "outputPerMillion": 75
+  },
+  "claude-sonnet-4-6": {
+    "inputPerMillion": 3,
+    "cachedInputPerMillion": 0.3,
+    "outputPerMillion": 15
+  },
+  "claude-haiku-4-5": {
+    "inputPerMillion": 0.8,
+    "cachedInputPerMillion": 0.08,
+    "outputPerMillion": 4
+  },
+  "gpt-5": {
+    "inputPerMillion": 1.25,
+    "cachedInputPerMillion": 0.125,
+    "outputPerMillion": 10
+  },
+  "gpt-5-mini": {
+    "inputPerMillion": 0.25,
+    "cachedInputPerMillion": 0.025,
+    "outputPerMillion": 2
+  },
+  "codex-mini-latest": {
+    "inputPerMillion": 0.25,
+    "cachedInputPerMillion": 0.025,
+    "outputPerMillion": 2
+  }
+}
