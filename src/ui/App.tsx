@@ -1,6 +1,8 @@
 import { Box, Text, useApp, useInput, useStdin, useStdout } from "ink";
 import { useEffect, useMemo, useState } from "react";
 import { cacheGradeSortValue, describeCacheGrade } from "../cache-score.js";
+import { MIN_RECOMMENDATION_TURNS, modelNickname, recommendModels } from "../recommender.js";
+import type { Recommendation as ModelRecommendation } from "../recommender.js";
 import type { ParsedTurn, PricingTable, StorageDetectionSummary, StorageResult } from "../types.js";
 import {
   filterTurns,
@@ -15,6 +17,7 @@ import {
 type ActiveView = "prompts" | "models" | "stats";
 type FilterMode = "models" | "topics";
 type PromptSortMode = "time" | "cacheGrade";
+type StatsFocus = "top" | "recommendations";
 
 export interface AppState {
   turns: ParsedTurn[];
@@ -45,7 +48,7 @@ interface FilterOverlayState {
 
 const BAR_WIDTH = 44;
 const STALE_AFTER_MS = 30_000;
-const SHORTCUTS = "[1] Prompts  [2] Models  [3] Stats  [g] Cache sort  [f] Models  [t] Topics  [c] Toggle tokens  [q] Quit";
+const SHORTCUTS = "[1] Prompts  [2] Models  [3] Stats  [r] Recommendations  [g] Cache sort  [f] Models  [t] Topics  [c] Tokens  [q] Quit";
 
 export default function App({
   turns,
@@ -73,6 +76,7 @@ export default function App({
   const [isLive, setIsLive] = useState(true);
   const [overlay, setOverlay] = useState<FilterOverlayState | null>(null);
   const [promptSortMode, setPromptSortMode] = useState<PromptSortMode>("time");
+  const [statsFocus, setStatsFocus] = useState<StatsFocus>("top");
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -124,6 +128,12 @@ export default function App({
     }
     if (input === "3") {
       setActiveView("stats");
+      setStatsFocus("top");
+      return;
+    }
+    if (input === "r") {
+      setActiveView("stats");
+      setStatsFocus("recommendations");
       return;
     }
     if (input === "c") {
@@ -188,7 +198,7 @@ export default function App({
         ) : activeView === "models" ? (
           <ModelsView turns={filteredTurns} showTokens={showTokens} />
         ) : (
-          <StatsView turns={filteredTurns} pricing={pricing} />
+          <StatsView turns={filteredTurns} pricing={pricing} focus={statsFocus} />
         )}
       </Box>
 
@@ -366,18 +376,29 @@ function ModelsView({
 
 function StatsView({
   turns,
-  pricing
+  pricing,
+  focus
 }: {
   turns: readonly ParsedTurn[];
   pricing: PricingTable;
+  focus: StatsFocus;
 }): React.JSX.Element {
   const stats = summarizeStats(turns, pricing);
+  const recommendations = recommendModels(turns);
   const mostExpensiveIndex = stats.mostExpensiveTurn
     ? Math.max(0, turns.findIndex((turn) => turn.id === stats.mostExpensiveTurn?.id)) + 1
     : 0;
   const mostExpensive = stats.mostExpensiveTurn
     ? `#${mostExpensiveIndex}  ~${formatUsd(stats.mostExpensiveTurn.costUsd)}  (${stats.mostExpensiveTurn.topic ?? "untagged"})`
     : "none";
+
+  if (focus === "recommendations") {
+    return (
+      <Box flexDirection="column">
+        <RecommendationsSection turns={turns} recommendations={recommendations} />
+      </Box>
+    );
+  }
 
   return (
     <Box flexDirection="column">
@@ -411,6 +432,83 @@ function StatsView({
       <Text>  Best session topic   {formatCacheTopic(stats.cacheEfficiency.bestTopic)}</Text>
       <Text>  Worst topic          {formatCacheTopic(stats.cacheEfficiency.worstTopic)}</Text>
       <Text wrap="wrap">  Tip: {stats.cacheEfficiency.tip}</Text>
+      <RecommendationsSection turns={turns} recommendations={recommendations} />
+    </Box>
+  );
+}
+
+function RecommendationsSection({
+  turns,
+  recommendations
+}: {
+  turns: readonly ParsedTurn[];
+  recommendations: readonly ModelRecommendation[];
+}): React.JSX.Element {
+  const totalSaving = recommendations.reduce((total, recommendation) => total + recommendation.potentialSavingUsd, 0);
+  const totalCurrentCost = recommendations.reduce(
+    (total, recommendation) => total + (recommendation.alreadyOptimal ? 0 : recommendation.currentAvgCost * recommendation.promptCount),
+    0
+  );
+  const totalSavingPct = totalCurrentCost <= 0 ? 0 : totalSaving / totalCurrentCost;
+  const savingModels = uniqueSorted(
+    recommendations
+      .map((recommendation) => recommendation.cheaperModel)
+      .filter((model): model is string => model !== null)
+      .map(modelNickname)
+  );
+  const savingTarget = savingModels.length === 1
+    ? ` to ${savingModels[0]}`
+    : "";
+
+  return (
+    <>
+      <Text dimColor>  ─────────────────────────────────────────</Text>
+      <Text bold>  Model Recommendations</Text>
+      {turns.length < MIN_RECOMMENDATION_TURNS ? (
+        <Text dimColor>  Not enough data yet — send 5+ prompts</Text>
+      ) : recommendations.length === 0 ? (
+        <Text dimColor>  No model usage data available yet.</Text>
+      ) : (
+        <>
+          <Text dimColor>  Based on your last {turns.length} prompts:</Text>
+          {recommendations.map((recommendation) => (
+            <RecommendationRows key={recommendation.topic} recommendation={recommendation} />
+          ))}
+          <Text>
+            {"  "}
+            Overall: switching routine prompts{savingTarget} could save ~{formatUsd(totalSaving)}/session ({formatPercent(totalSavingPct)} reduction)
+          </Text>
+        </>
+      )}
+    </>
+  );
+}
+
+function RecommendationRows({ recommendation }: { recommendation: ModelRecommendation }): React.JSX.Element {
+  if (recommendation.alreadyOptimal) {
+    return (
+      <Text color="green">
+        {"  "}
+        {recommendation.topic.padEnd(13)} you already use the best value model ✓
+      </Text>
+    );
+  }
+
+  return (
+    <Box flexDirection="column">
+      <Text>
+        {"  "}
+        {recommendation.topic.padEnd(13)}
+        currently: {modelNickname(recommendation.currentModel)} ({formatUsd(recommendation.currentAvgCost, true)}/prompt)
+      </Text>
+      <Text>
+        {"  ".padEnd(15)}
+        cheaper option: {modelNickname(recommendation.cheaperModel ?? "unknown")} ({formatUsd(recommendation.cheaperAvgCost ?? 0, true)}/prompt)
+      </Text>
+      <Text>
+        {"  ".padEnd(15)}
+        potential saving: ~{formatUsd(recommendation.potentialSavingUsd)} this session  ↓ {formatPercent(recommendation.potentialSavingPct)}
+      </Text>
     </Box>
   );
 }
@@ -575,6 +673,10 @@ export function unselectedFilters(
 ): string[] {
   const selectedSet = new Set(selected);
   return available.filter((item) => !selectedSet.has(item));
+}
+
+function uniqueSorted(values: readonly string[]): string[] {
+  return [...new Set(values)].sort((a, b) => a.localeCompare(b));
 }
 
 function clamp(value: number, min: number, max: number): number {
