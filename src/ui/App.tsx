@@ -1,6 +1,14 @@
 import { Box, Text, useApp, useInput, useStdin, useStdout } from "ink";
 import { useEffect, useMemo, useState } from "react";
+import {
+  getDailyResetDate,
+  getProjectedDailySpend,
+  getProjectedWeeklySpend,
+  getWeeklyResetDate,
+  type SpendRecord
+} from "../budget.js";
 import { cacheGradeSortValue, describeCacheGrade } from "../cache-score.js";
+import { hasBudget, type TokenwatchConfig } from "../config.js";
 import { MIN_RECOMMENDATION_TURNS, modelNickname, recommendModels } from "../recommender.js";
 import type { Recommendation as ModelRecommendation } from "../recommender.js";
 import type { ParsedTurn, PricingTable, StorageDetectionSummary, StorageResult } from "../types.js";
@@ -32,6 +40,9 @@ export interface AppState {
 export interface AppProps {
   turns: ParsedTurn[];
   pricing: PricingTable;
+  budgetConfig: TokenwatchConfig;
+  spend: SpendRecord;
+  sessionStart: Date;
   detectionSummary: StorageDetectionSummary | null;
   version: string;
   warnings?: readonly string[];
@@ -53,6 +64,9 @@ const SHORTCUTS = "[1] Prompts  [2] Models  [3] Stats  [r] Recs  [g] Cache sort 
 export default function App({
   turns,
   pricing,
+  budgetConfig,
+  spend,
+  sessionStart,
   detectionSummary,
   version,
   warnings = [],
@@ -179,12 +193,17 @@ export default function App({
   const stale = lastTurnReceivedAt === null || Date.now() - lastTurnReceivedAt > STALE_AFTER_MS;
   const liveColor = stale ? "gray" : "green";
   const liveDim = stale || !isLive;
+  const budgetEnabled = hasBudget(budgetConfig);
 
   return (
     <Box flexDirection="column" width={width} height={height} paddingX={1}>
       <Box justifyContent="space-between">
         <Text bold>tokenwatch v{version}</Text>
-        <Text color={liveColor} dimColor={liveDim}>● LIVE</Text>
+        {budgetEnabled ? (
+          <BudgetHeader config={budgetConfig} spend={spend} liveColor={liveColor} liveDim={liveDim} />
+        ) : (
+          <Text color={liveColor} dimColor={liveDim}>● LIVE</Text>
+        )}
       </Box>
 
       <Box flexDirection="column" height={contentHeight} overflow="hidden">
@@ -203,7 +222,14 @@ export default function App({
         ) : activeView === "models" ? (
           <ModelsView turns={filteredTurns} showTokens={showTokens} />
         ) : (
-          <StatsView turns={filteredTurns} pricing={pricing} focus={statsFocus} />
+          <StatsView
+            turns={filteredTurns}
+            pricing={pricing}
+            budgetConfig={budgetConfig}
+            spend={spend}
+            sessionStart={sessionStart}
+            focus={statsFocus}
+          />
         )}
       </Box>
 
@@ -254,6 +280,39 @@ export default function App({
       setOverlay({ ...currentOverlay, selected });
     }
   }
+}
+
+function BudgetHeader({
+  config,
+  spend,
+  liveColor,
+  liveDim
+}: {
+  config: TokenwatchConfig;
+  spend: SpendRecord;
+  liveColor: string;
+  liveDim: boolean;
+}): React.JSX.Element {
+  const budget = config.dailyBudgetUsd ?? config.weeklyBudgetUsd ?? 0;
+  const spent = config.dailyBudgetUsd !== null ? spend.dailyTotal : spend.weeklyTotal;
+  const label = config.dailyBudgetUsd !== null ? "today" : "week";
+  const ratio = budget <= 0 ? 0 : spent / budget;
+  const color = getBudgetColor(ratio);
+  const status = ratio > 1
+    ? "  ✗ OVER"
+    : ratio >= config.alertAt
+      ? `  ⚠ ${formatPercent(ratio)}`
+      : "";
+
+  return (
+    <Text>
+      <Text color={color}>
+        {label} ~{formatUsd(spent)} / {formatUsd(budget)}  {budgetBar(ratio)}  {formatPercent(ratio)}{status}
+      </Text>
+      {"  "}
+      <Text color={liveColor} dimColor={liveDim}>● LIVE</Text>
+    </Text>
+  );
 }
 
 function Onboarding({ detectionSummary }: { detectionSummary: StorageDetectionSummary | null }): React.JSX.Element {
@@ -386,10 +445,16 @@ function ModelsView({
 function StatsView({
   turns,
   pricing,
+  budgetConfig,
+  spend,
+  sessionStart,
   focus
 }: {
   turns: readonly ParsedTurn[];
   pricing: PricingTable;
+  budgetConfig: TokenwatchConfig;
+  spend: SpendRecord;
+  sessionStart: Date;
   focus: StatsFocus;
 }): React.JSX.Element {
   const stats = summarizeStats(turns, pricing);
@@ -448,8 +513,56 @@ function StatsView({
       <Text>  Prompts over 75%     {stats.contextWindow.over75Count} prompts</Text>
       <Text>  Prompts over 90%     {stats.contextWindow.over90Count} prompts</Text>
       {stats.contextWindow.tip ? <Text wrap="wrap">  Tip: {stats.contextWindow.tip}</Text> : null}
+      <BudgetSection config={budgetConfig} spend={spend} sessionStart={sessionStart} />
       <RecommendationsSection turns={turns} recommendations={recommendations} />
     </Box>
+  );
+}
+
+function BudgetSection({
+  config,
+  spend,
+  sessionStart
+}: {
+  config: TokenwatchConfig;
+  spend: SpendRecord;
+  sessionStart: Date;
+}): React.JSX.Element | null {
+  if (!hasBudget(config)) {
+    return null;
+  }
+
+  const now = new Date();
+  const projectedDaily = getProjectedDailySpend(spend.dailyTotal, sessionStart, now);
+  const projectedWeekly = getProjectedWeeklySpend(spend.weeklyTotal, sessionStart, now);
+
+  return (
+    <>
+      <Text dimColor>  ─────────────────────────────────────────</Text>
+      <Text bold>  Budget</Text>
+      {config.dailyBudgetUsd !== null ? (
+        <>
+          <Text>  Daily budget         {formatUsd(config.dailyBudgetUsd)}</Text>
+          <Text>  Spent today          ~{formatUsd(spend.dailyTotal)}  ({formatPercent(spend.dailyTotal / config.dailyBudgetUsd)})</Text>
+          <Text>  Remaining today      ~{formatUsd(Math.max(0, config.dailyBudgetUsd - spend.dailyTotal))}</Text>
+          <Text>  Reset in             {formatResetDuration(getDailyResetDate(now), now)}</Text>
+        </>
+      ) : null}
+      {config.weeklyBudgetUsd !== null ? (
+        <>
+          <Text>  Weekly budget        {formatUsd(config.weeklyBudgetUsd)}</Text>
+          <Text>  Spent this week      ~{formatUsd(spend.weeklyTotal)}  ({formatPercent(spend.weeklyTotal / config.weeklyBudgetUsd)})</Text>
+          <Text>  Remaining this week  ~{formatUsd(Math.max(0, config.weeklyBudgetUsd - spend.weeklyTotal))}</Text>
+          <Text>  Reset in             {formatResetDuration(getWeeklyResetDate(now), now)}</Text>
+        </>
+      ) : null}
+      {config.dailyBudgetUsd !== null ? (
+        <Text>  Projected daily spend  ~{formatUsd(projectedDaily)}  ({budgetVerdict(spend.dailyTotal, projectedDaily, config.dailyBudgetUsd)})</Text>
+      ) : null}
+      {config.weeklyBudgetUsd !== null ? (
+        <Text>  Projected weekly spend ~{formatUsd(projectedWeekly)}  ({budgetVerdict(spend.weeklyTotal, projectedWeekly, config.weeklyBudgetUsd)})</Text>
+      ) : null}
+    </>
   );
 }
 
@@ -664,6 +777,46 @@ function costBar(value: number, maxValue: number): string {
 function contextBar(contextUsagePct: number): string {
   const filled = Math.max(0, Math.min(BAR_WIDTH, Math.round(contextUsagePct * BAR_WIDTH)));
   return `${"█".repeat(filled)}${"░".repeat(BAR_WIDTH - filled)}`;
+}
+
+function budgetBar(ratio: number): string {
+  const width = 16;
+  const filled = Math.max(0, Math.min(width, Math.round(ratio * width)));
+  return `${"█".repeat(filled)}${"░".repeat(width - filled)}`;
+}
+
+function getBudgetColor(ratio: number): string {
+  if (ratio > 1) {
+    return "red";
+  }
+  if (ratio >= 0.8) {
+    return "#ffa500";
+  }
+  if (ratio >= 0.6) {
+    return "yellow";
+  }
+  return "green";
+}
+
+function budgetVerdict(spent: number, projected: number, budget: number): string {
+  if (spent > budget) {
+    return "over budget";
+  }
+  if (projected > budget) {
+    return "at risk";
+  }
+  return "on track";
+}
+
+function formatResetDuration(target: Date, now: Date): string {
+  const totalMinutes = Math.max(0, Math.round((target.getTime() - now.getTime()) / 60_000));
+  const days = Math.floor(totalMinutes / 1440);
+  const hours = Math.floor((totalMinutes % 1440) / 60);
+  const minutes = totalMinutes % 60;
+  if (days > 0) {
+    return `${days}d ${hours}h`;
+  }
+  return `${hours}h ${minutes}m`;
 }
 
 function formatTokenLine(turn: ParsedTurn): string {

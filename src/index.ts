@@ -4,6 +4,8 @@ import { dirname, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import React from "react";
 import { render, type Instance } from "ink";
+import { addSpend, loadSpend, resetSpend, type SpendRecord } from "./budget.js";
+import { hasBudget, loadConfig, type TokenwatchConfig } from "./config.js";
 import { runExport } from "./export/runner.js";
 import { loadPricing } from "./pricing.js";
 import { createParsedTurn } from "./turns.js";
@@ -15,6 +17,10 @@ interface CliArgs {
   claudeGlob?: string;
   codexDbPath?: string;
   topic?: string;
+  dailyBudgetUsd?: number;
+  weeklyBudgetUsd?: number;
+  alertAt?: number;
+  resetBudget: boolean;
   help: boolean;
 }
 
@@ -31,12 +37,16 @@ async function main(argv: readonly string[]): Promise<void> {
   }
 
   const pricing = loadPricing();
+  const budgetConfig = applyBudgetOverrides(loadConfig(), args);
+  let spend = args.resetBudget ? resetSpend() : loadSpend();
+  const sessionStart = new Date();
   const version = getPackageVersion();
   const state: RuntimeState = {
     turns: [],
     detectionSummary: null,
     warnings: [],
-    lastTurnReceivedAt: null
+    lastTurnReceivedAt: null,
+    spend
   };
   let turnIndex = 0;
   let watcher: TokenWatcher | null = null;
@@ -44,7 +54,7 @@ async function main(argv: readonly string[]): Promise<void> {
   let closing = false;
 
   const rerender = (): void => {
-    app?.rerender(renderApp(state, pricing, version, close));
+    app?.rerender(renderApp(state, pricing, budgetConfig, sessionStart, version, close));
   };
 
   const options: WatcherOptions = {
@@ -61,7 +71,7 @@ async function main(argv: readonly string[]): Promise<void> {
     }
   };
 
-  app = render(renderApp(state, pricing, version, close), {
+  app = render(renderApp(state, pricing, budgetConfig, sessionStart, version, close), {
     exitOnCtrlC: false,
     patchConsole: false
   });
@@ -74,6 +84,14 @@ async function main(argv: readonly string[]): Promise<void> {
       ? state.turns[existingIndex].id
       : ++turnIndex;
     const parsedTurn = createParsedTurn(turn, id, pricing, args.topic);
+    if (hasBudget(budgetConfig)) {
+      const previousCost = existingIndex >= 0 ? state.turns[existingIndex].costUsd : 0;
+      const spendDelta = parsedTurn.costUsd - previousCost;
+      if (spendDelta !== 0) {
+        spend = addSpend(spendDelta);
+        state.spend = spend;
+      }
+    }
     state.turns = existingIndex >= 0
       ? state.turns.map((existing, index) => index === existingIndex ? parsedTurn : existing)
       : [...state.turns, parsedTurn];
@@ -104,17 +122,23 @@ interface RuntimeState {
   detectionSummary: StorageDetectionSummary | null;
   warnings: string[];
   lastTurnReceivedAt: number | null;
+  spend: SpendRecord;
 }
 
 function renderApp(
   state: RuntimeState,
   pricing: PricingTable,
+  budgetConfig: TokenwatchConfig,
+  sessionStart: Date,
   version: string,
   onQuit: () => void
 ): React.ReactElement {
   return React.createElement(App, {
     turns: state.turns,
     pricing,
+    budgetConfig,
+    spend: state.spend,
+    sessionStart,
     detectionSummary: state.detectionSummary,
     version,
     warnings: state.warnings,
@@ -125,7 +149,7 @@ function renderApp(
 }
 
 function parseArgs(argv: readonly string[]): CliArgs {
-  const args: CliArgs = { help: false };
+  const args: CliArgs = { help: false, resetBudget: false };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === "--help" || arg === "-h") {
@@ -147,9 +171,52 @@ function parseArgs(argv: readonly string[]): CliArgs {
       index += 1;
       continue;
     }
+    if (arg === "--daily-budget") {
+      args.dailyBudgetUsd = parsePositiveAmount(requireValue(argv, index, arg), arg);
+      index += 1;
+      continue;
+    }
+    if (arg === "--weekly-budget") {
+      args.weeklyBudgetUsd = parsePositiveAmount(requireValue(argv, index, arg), arg);
+      index += 1;
+      continue;
+    }
+    if (arg === "--alert-at") {
+      args.alertAt = parseAlertAt(requireValue(argv, index, arg), arg);
+      index += 1;
+      continue;
+    }
+    if (arg === "--reset-budget") {
+      args.resetBudget = true;
+      continue;
+    }
     throw new Error(`Unknown argument: ${arg}`);
   }
   return args;
+}
+
+function applyBudgetOverrides(config: TokenwatchConfig, args: CliArgs): TokenwatchConfig {
+  return {
+    dailyBudgetUsd: args.dailyBudgetUsd ?? config.dailyBudgetUsd,
+    weeklyBudgetUsd: args.weeklyBudgetUsd ?? config.weeklyBudgetUsd,
+    alertAt: args.alertAt ?? config.alertAt
+  };
+}
+
+function parsePositiveAmount(value: string, flag: string): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error(`${flag} must be a positive number`);
+  }
+  return parsed;
+}
+
+function parseAlertAt(value: string, flag: string): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0 || parsed > 1) {
+    throw new Error(`${flag} must be between 0 and 1`);
+  }
+  return parsed;
 }
 
 function requireValue(argv: readonly string[], index: number, flag: string): string {
@@ -180,7 +247,7 @@ function printHelp(): void {
 
 Usage:
   tokenwatch export [--md] [--csv] [--out <dir>]
-  tokenwatch [--claude-glob <glob>] [--codex-db <path>] [--topic <name>]
+  tokenwatch [--claude-glob <glob>] [--codex-db <path>] [--topic <name>] [--daily-budget <amount>] [--weekly-budget <amount>]
 
 Options:
   export               Write Markdown and/or CSV reports for the current session without launching the TUI
@@ -190,6 +257,10 @@ Options:
   --claude-glob <glob>  Claude Code JSONL glob. Default: auto-detect from $CLAUDE_HOME or ~/.claude
   --codex-db <path>     Codex CLI SQLite database. Default: auto-detect from $CODEX_HOME or ~/.codex
   --topic <name>        Manually tag every parsed prompt in this session with the given topic
+  --daily-budget <amount>   Daily budget in USD. Overrides ~/.tokenwatch/config.json
+  --weekly-budget <amount>  Weekly budget in USD. Overrides ~/.tokenwatch/config.json
+  --alert-at <pct>          Alert threshold from 0.0 to 1.0. Default: 0.8
+  --reset-budget            Reset persisted daily and weekly spend totals, then start watching
   -h, --help            Show this help.
 
 Environment:
