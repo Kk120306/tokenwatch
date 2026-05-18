@@ -34,7 +34,7 @@ export type PricingTable = Record<string, PricingEntry>;
 
 export interface WatcherOptions {
   claudeGlob: string;
-  codexGlob: string;
+  codexDbPath: string;
   pollIntervalMs: number;
 }
 
@@ -61,20 +61,23 @@ export interface ClaudeAssistantEntry {
 
 export interface CodexTokenCount {
   input_tokens?: number;
+  input_tokens_details?: {
+    cached_tokens?: number;
+  };
   cached_input_tokens?: number;
   output_tokens?: number;
   total_tokens?: number;
 }
 
-export interface CodexTokenCountEntry {
+export interface CodexResponseCompletedEvent {
   type?: string;
-  event?: string;
-  name?: string;
-  token_count?: CodexTokenCount;
-  token_counts?: CodexTokenCount;
-  usage?: CodexTokenCount;
-  turn_context?: {
+  response?: {
     model?: string;
+    usage?: CodexTokenCount;
   };
-  model?: string;
+}
+
+export interface CodexLogRow {
+  rowid: number;
+  feedback_log_body: string | null;
 }

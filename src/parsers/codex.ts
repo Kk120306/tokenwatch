@@ -1,103 +1,73 @@
-import type { CodexTokenCount, CodexTokenCountEntry, TokenTurn, TokenUsage } from "../types.js";
+import type { CodexLogRow, CodexResponseCompletedEvent, TokenTurn, TokenUsage } from "../types.js";
 
 const UNKNOWN_MODEL = "unknown";
-const TOKEN_COUNT_MARKERS = new Set(["token_count", "token_counts"]);
+const CODEX_MESSAGE_PREFIX = "Received message ";
+const RESPONSE_COMPLETED_TYPE = "response.completed";
 
-export class CodexDeltaParser {
-  private previous: TokenUsage | null = null;
-
-  parseLine(line: string): TokenTurn | null {
-    const trimmed = line.trim();
-    if (trimmed.length === 0) {
-      return null;
-    }
-
-    let entry: CodexTokenCountEntry;
-    try {
-      entry = JSON.parse(trimmed) as CodexTokenCountEntry;
-    } catch {
-      return null;
-    }
-
-    const counts = extractCounts(entry);
-    if (!counts) {
-      return null;
-    }
-
-    const current = normalizeCounts(counts);
-    const delta = this.previous ? diffCounts(current, this.previous) : current;
-    this.previous = current;
-
-    if (
-      delta.inputTokens === 0 &&
-      delta.cachedInputTokens === 0 &&
-      delta.outputTokens === 0
-    ) {
-      return null;
-    }
-
-    return {
-      source: "codex",
-      model: entry.turn_context?.model ?? entry.model ?? UNKNOWN_MODEL,
-      usage: delta
-    };
-  }
+export function parseCodexLogRow(row: CodexLogRow): TokenTurn | null {
+  return parseCodexFeedbackLogBody(row.feedback_log_body);
 }
 
-export function parseCodexLines(lines: Iterable<string>): TokenTurn[] {
-  const parser = new CodexDeltaParser();
-  const turns: TokenTurn[] = [];
-  for (const line of lines) {
-    const turn = parser.parseLine(line);
-    if (turn) {
-      turns.push(turn);
-    }
+export function parseCodexFeedbackLogBody(body: string | null): TokenTurn | null {
+  if (!body) {
+    return null;
   }
-  return turns;
-}
 
-function extractCounts(entry: CodexTokenCountEntry): CodexTokenCount | null {
-  if (entry.token_count) {
-    return entry.token_count;
+  const payload = extractJsonPayload(body);
+  if (!payload) {
+    return null;
   }
-  if (entry.token_counts) {
-    return entry.token_counts;
+
+  let event: CodexResponseCompletedEvent;
+  try {
+    event = JSON.parse(payload) as CodexResponseCompletedEvent;
+  } catch {
+    return null;
   }
-  if (entry.usage && isTokenCountEvent(entry)) {
-    return entry.usage;
+
+  if (event.type !== RESPONSE_COMPLETED_TYPE) {
+    return null;
   }
-  return null;
-}
 
-function isTokenCountEvent(entry: CodexTokenCountEntry): boolean {
-  return (
-    TOKEN_COUNT_MARKERS.has(entry.type ?? "") ||
-    TOKEN_COUNT_MARKERS.has(entry.event ?? "") ||
-    TOKEN_COUNT_MARKERS.has(entry.name ?? "")
-  );
-}
+  const usage = event.response?.usage;
+  if (!usage) {
+    return null;
+  }
 
-function normalizeCounts(counts: CodexTokenCount): TokenUsage {
-  return {
-    inputTokens: toCount(counts.input_tokens),
-    cachedInputTokens: toCount(counts.cached_input_tokens),
-    outputTokens: toCount(counts.output_tokens)
-  };
-}
-
-function diffCounts(current: TokenUsage, previous: TokenUsage): TokenUsage {
-  return {
-    inputTokens: nonNegativeDelta(current.inputTokens, previous.inputTokens),
-    cachedInputTokens: nonNegativeDelta(
-      current.cachedInputTokens,
-      previous.cachedInputTokens
+  const normalizedUsage: TokenUsage = {
+    inputTokens: toCount(usage.input_tokens),
+    cachedInputTokens: toCount(
+      usage.input_tokens_details?.cached_tokens ?? usage.cached_input_tokens
     ),
-    outputTokens: nonNegativeDelta(current.outputTokens, previous.outputTokens)
+    outputTokens: toCount(usage.output_tokens)
+  };
+
+  if (
+    normalizedUsage.inputTokens === 0 &&
+    normalizedUsage.cachedInputTokens === 0 &&
+    normalizedUsage.outputTokens === 0
+  ) {
+    return null;
+  }
+
+  return {
+    source: "codex",
+    model: event.response?.model ?? UNKNOWN_MODEL,
+    usage: normalizedUsage
   };
 }
 
-function nonNegativeDelta(current: number, previous: number): number {
-  return Math.max(0, current - previous);
+function extractJsonPayload(body: string): string | null {
+  const trimmed = body.trim();
+  if (trimmed.startsWith(CODEX_MESSAGE_PREFIX)) {
+    return trimmed.slice(CODEX_MESSAGE_PREFIX.length).trim();
+  }
+
+  if (trimmed.startsWith("{")) {
+    return trimmed;
+  }
+
+  return null;
 }
 
 function toCount(value: unknown): number {

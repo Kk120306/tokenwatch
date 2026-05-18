@@ -1,8 +1,8 @@
 # tokenwatch
 
-`tokenwatch` is a minimal TypeScript CLI that watches Claude Code and Codex CLI JSONL session logs and prints per-prompt token usage in real time.
+`tokenwatch` is a minimal TypeScript CLI that watches Claude Code JSONL logs and Codex CLI's SQLite log database, then prints per-prompt token usage in real time.
 
-It auto-detects the active AI CLI by watching both log locations and selecting the most recently modified JSONL session file.
+It tails Claude Code's active JSONL session file and polls Codex CLI's `logs_2.sqlite` database for new response rows.
 
 ## Install
 
@@ -27,10 +27,10 @@ Run it in a terminal pane next to Claude Code or Codex CLI:
 tokenwatch
 ```
 
-Optional custom globs:
+Optional custom paths:
 
 ```sh
-tokenwatch --claude-glob "$HOME/.claude/projects/**/*.jsonl" --codex-glob "$HOME/.codex/*.jsonl"
+tokenwatch --claude-glob "$HOME/.claude/projects/**/*.jsonl" --codex-db "$HOME/.codex/logs_2.sqlite"
 ```
 
 ## Output
@@ -47,7 +47,7 @@ Screenshot placeholder: add a terminal screenshot here after the first real run.
 ## Supported Logs
 
 - Claude Code: watches `~/.claude/projects/**/*.jsonl` and reads assistant entries with `message.usage`.
-- Codex CLI: watches `~/.codex/*.jsonl`, reads cumulative `token_count` events, and diffs each event against the previous event for per-prompt usage.
+- Codex CLI: polls `~/.codex/logs_2.sqlite`, reads new `logs` rows whose message is a `response.completed` event, and extracts `response.usage`.
 
 ## Pricing
 

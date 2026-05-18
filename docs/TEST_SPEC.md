@@ -4,9 +4,9 @@
 
 - Claude parser emits a turn for `assistant` entries with `message.usage`.
 - Claude parser ignores user entries, unrelated assistant entries, blank lines, and malformed JSON.
-- Codex parser emits the first cumulative `token_count` event as the first prompt count.
-- Codex parser diffs subsequent cumulative events against the previous event.
-- Codex parser ignores unrelated history or metadata JSONL lines.
+- Codex parser emits a turn for SQLite `logs.feedback_log_body` values containing `response.completed` usage.
+- Codex parser extracts `input_tokens`, `input_tokens_details.cached_tokens`, `output_tokens`, and `response.model`.
+- Codex parser ignores malformed, unrelated, or usage-free SQLite log rows.
 
 ## Pricing Tests
 
@@ -17,6 +17,7 @@
 
 - Active session detection chooses the candidate with the newest `mtimeMs`.
 - Missing or non-file paths are ignored by path inspection.
+- Codex SQLite polling reads only rows newer than the last seen `rowid` and advances past unrelated rows.
 
 ## Display Tests
 

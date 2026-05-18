@@ -7,7 +7,7 @@ import type { SessionTotal, TurnSummary, TokenTurn, WatcherOptions } from "./typ
 
 interface CliArgs {
   claudeGlob?: string;
-  codexGlob?: string;
+  codexDbPath?: string;
   help: boolean;
 }
 
@@ -24,10 +24,10 @@ async function main(argv: readonly string[]): Promise<void> {
   const options: WatcherOptions = {
     ...DEFAULT_WATCHER_OPTIONS,
     claudeGlob: args.claudeGlob ?? DEFAULT_WATCHER_OPTIONS.claudeGlob,
-    codexGlob: args.codexGlob ?? DEFAULT_WATCHER_OPTIONS.codexGlob
+    codexDbPath: args.codexDbPath ?? DEFAULT_WATCHER_OPTIONS.codexDbPath
   };
 
-  console.log(`tokenwatch watching ${basename(options.claudeGlob)} and ${basename(options.codexGlob)}`);
+  console.log(`tokenwatch watching ${basename(options.claudeGlob)} and ${options.codexDbPath}`);
 
   const watcher = await startTokenWatcher((turn: TokenTurn) => {
     const summary: TurnSummary = {
@@ -67,8 +67,8 @@ function parseArgs(argv: readonly string[]): CliArgs {
       index += 1;
       continue;
     }
-    if (arg === "--codex-glob") {
-      args.codexGlob = requireValue(argv, index, arg);
+    if (arg === "--codex-db") {
+      args.codexDbPath = requireValue(argv, index, arg);
       index += 1;
       continue;
     }
@@ -89,11 +89,11 @@ function printHelp(): void {
   console.log(`tokenwatch
 
 Usage:
-  tokenwatch [--claude-glob <glob>] [--codex-glob <glob>]
+  tokenwatch [--claude-glob <glob>] [--codex-db <path>]
 
 Options:
   --claude-glob <glob>  Claude Code JSONL glob. Default: ~/.claude/projects/**/*.jsonl
-  --codex-glob <glob>   Codex CLI JSONL glob. Default: ~/.codex/*.jsonl
+  --codex-db <path>     Codex CLI SQLite database. Default: ~/.codex/logs_2.sqlite
   -h, --help            Show this help.
 `);
 }

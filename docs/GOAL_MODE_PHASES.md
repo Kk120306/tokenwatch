@@ -12,21 +12,21 @@ Validation: `npm run typecheck` can be attempted after dependencies are installe
 
 ## Phase 2: goal mode `parser-correctness`
 
-Goal: implement strict parser behavior for Claude Code and Codex CLI logs.
+Goal: implement strict parser behavior for Claude Code JSONL logs and Codex CLI SQLite logs.
 
-Deliverables: Claude assistant usage parser, Codex cumulative delta parser, shared token interfaces.
+Deliverables: Claude assistant usage parser, Codex `response.completed` SQLite row parser, shared token interfaces.
 
-Stop condition: parser tests prove assistant filtering, malformed-line tolerance, and Codex deltas.
+Stop condition: parser tests prove assistant filtering, malformed-line tolerance, and Codex SQLite usage extraction.
 
 Validation: parser unit tests pass.
 
 ## Phase 3: goal mode `active-session-detection`
 
-Goal: watch both CLI log locations and select the newest modified session file.
+Goal: watch Claude Code JSONL logs and poll Codex CLI SQLite logs.
 
-Deliverables: `chokidar` watcher, mtime-based active file selection, per-file tail offsets.
+Deliverables: `chokidar` Claude watcher, mtime-based active file selection, per-file tail offsets, Codex SQLite rowid poller.
 
-Stop condition: watcher helpers choose the newest candidate and ignore missing files.
+Stop condition: watcher helpers choose the newest Claude candidate, ignore missing files, and read only new Codex rows.
 
 Validation: watcher unit tests pass.
 
