@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { selectedFilters, unselectedFilters } from "../dist/ui/App.js";
+import { formatDetectionLines, selectedFilters, unselectedFilters } from "../dist/ui/App.js";
 import { filterTurns, normalizeModel, recommendModel, summarizeModels, summarizeStats, uniqueModels } from "../dist/ui/selectors.js";
 
 const turns = [
@@ -71,6 +71,40 @@ test("TUI filter selections default newly discovered models and topics to select
   const unchecked = unselectedFilters(["gpt-5.5", "claude-sonnet-4-6"], ["gpt-5.5"]);
   assert.deepEqual(unchecked, ["claude-sonnet-4-6"]);
   assert.deepEqual(selectedFilters(["gpt-5.5", "claude-sonnet-4-6", "gpt-5.4"], unchecked), ["gpt-5.5", "gpt-5.4"]);
+});
+
+test("TUI onboarding diagnostics explain missing, waiting, and found sources", () => {
+  assert.deepEqual(formatDetectionLines("Claude Code", undefined), [
+    "  ?  Claude Code   checking storage",
+    "     Waiting for the first detection pass."
+  ]);
+
+  assert.deepEqual(formatDetectionLines("Codex CLI", {
+    source: "codex",
+    status: "missing",
+    format: "none",
+    path: null,
+    paths: [],
+    detail: "codex → waiting for session...",
+    warnings: ["~/.codex/state_5.sqlite: no readable Codex rollout path in threads.rollout_path; falling back"]
+  }), [
+    "  ✗  Codex CLI     not detected",
+    "     Codex state found; waiting for an active session to write a rollout path.",
+    "     Warning: ~/.codex/state_5.sqlite: no readable Codex rollout path in threads.rollout_path; falling back"
+  ]);
+
+  assert.deepEqual(formatDetectionLines("Codex CLI", {
+    source: "codex",
+    status: "found",
+    format: "sqlite",
+    path: "/tmp/logs_2.sqlite",
+    paths: ["/tmp/logs_2.sqlite"],
+    detail: "$CODEX_HOME/logs_2.sqlite",
+    warnings: []
+  }), [
+    "  ✓  Codex CLI     /tmp/logs_2.sqlite   sqlite",
+    "     Usage is available; prompt text is best-effort from nearby user-message telemetry."
+  ]);
 });
 
 test("TUI prompts stay flat by timestamp and model rendering falls back to unknown", () => {

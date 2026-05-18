@@ -335,8 +335,12 @@ function Onboarding({ detectionSummary }: { detectionSummary: StorageDetectionSu
       <Logo />
       <Text bold>  tokenwatch is ready</Text>
       <Text dimColor>  ─────────────────────────────────────────</Text>
-      <Text>{formatDetection("Claude Code", detectionSummary?.claude)}</Text>
-      <Text>{formatDetection("Codex CLI", detectionSummary?.codex)}</Text>
+      {formatDetectionLines("Claude Code", detectionSummary?.claude).map((line, index) => (
+        <Text key={`claude-${index}`} dimColor={index > 0}>{line}</Text>
+      ))}
+      {formatDetectionLines("Codex CLI", detectionSummary?.codex).map((line, index) => (
+        <Text key={`codex-${index}`} dimColor={index > 0}>{line}</Text>
+      ))}
       <Text> </Text>
       <Text>  Send a prompt in your AI CLI to see usage appear here.</Text>
     </Box>
@@ -695,14 +699,60 @@ function FilterOverlay({
   );
 }
 
-function formatDetection(label: string, result: StorageResult | undefined): string {
-  if (!result || result.status === "missing") {
-    return `  ✗  ${label.padEnd(13)} not detected         none`;
+export function formatDetectionLines(label: string, result: StorageResult | undefined): string[] {
+  if (!result) {
+    return [
+      `  ?  ${label.padEnd(13)} checking storage`,
+      "     Waiting for the first detection pass."
+    ];
   }
+
+  if (result.status === "missing") {
+    return [
+      `  ✗  ${label.padEnd(13)} not detected`,
+      `     ${actionableDetectionDetail(result)}`,
+      ...formatDetectionWarnings(result)
+    ];
+  }
+
   const goal = result.source === "codex" && result.goal
     ? ` · goal ${result.goal.status}`
     : "";
-  return `  ✓  ${label.padEnd(13)} ${shortPath(result.pattern ?? result.path).padEnd(20)} ${result.format}${goal}`;
+  return [
+    `  ✓  ${label.padEnd(13)} ${shortPath(result.pattern ?? result.path).padEnd(20)} ${result.format}${goal}`,
+    `     ${visibilityHint(result)}`,
+    ...formatDetectionWarnings(result)
+  ];
+}
+
+function actionableDetectionDetail(result: StorageResult): string {
+  if (result.detail.includes("waiting for session")) {
+    return "Codex state found; waiting for an active session to write a rollout path.";
+  }
+  if (result.detail.includes("no files matched --claude-glob")) {
+    return `${result.detail}. Check the glob or start a Claude Code session.`;
+  }
+  if (result.source === "claude") {
+    return `${result.detail}. Start Claude Code or set CLAUDE_HOME.`;
+  }
+  return `${result.detail}. Start Codex or set CODEX_HOME.`;
+}
+
+function visibilityHint(result: StorageResult): string {
+  if (result.source === "claude") {
+    return "Prompt text and usage are available when user and assistant JSONL entries are paired.";
+  }
+  if (result.format === "sqlite") {
+    return "Usage is available; prompt text is best-effort from nearby user-message telemetry.";
+  }
+  if (result.format === "jsonl") {
+    return "Prompt text and token usage are available from rollout JSONL when both events are present.";
+  }
+  return "Usage rows are parsed from local Codex log text when structured events are present.";
+}
+
+function formatDetectionWarnings(result: StorageResult): string[] {
+  return result.warnings.slice(-2).map((warning) => `     Warning: ${warning}`);
 }
 
 function formatTopicAverage(topic: { topic: string; avgCostUsd: number } | null): string {
