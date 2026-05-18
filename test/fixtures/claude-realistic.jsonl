@@ -1,0 +1,6 @@
+{"type":"user","timestamp":"2026-05-18T01:00:00.000Z","message":{"role":"user","content":[{"type":"text","text":"Summarize the token budget for this session"}]}}
+{"type":"assistant","timestamp":"2026-05-18T01:00:08.000Z","message":{"id":"msg_sanitized_1","type":"message","role":"assistant","model":"claude-sonnet-4-6","content":[{"type":"text","text":"The budget is on track."}],"usage":{"input_tokens":2400,"cache_creation_input_tokens":400,"cache_read_input_tokens":1200,"output_tokens":320}}}
+{"type":"user","timestamp":"2026-05-18T01:01:00.000Z","message":{"role":"user","content":[{"type":"tool_result","content":"sanitized tool output"}]}}
+{"type":"assistant","timestamp":"2026-05-18T01:01:05.000Z","message":{"id":"msg_sanitized_internal","type":"message","role":"assistant","model":"claude-sonnet-4-6","usage":{"input_tokens":9999,"cache_read_input_tokens":9999,"output_tokens":999}}}
+{"type":"user","timestamp":"2026-05-18T01:02:00.000Z","message":{"role":"user","content":"Refactor the report export to include JSON"}}
+{"type":"assistant","timestamp":"2026-05-18T01:02:07.000Z","message":{"id":"msg_sanitized_2","type":"message","role":"assistant","model":"claude-haiku-4-5-20251001","content":[{"type":"text","text":"Implemented."}],"usage":{"input_tokens":1800,"cache_read_input_tokens":900,"output_tokens":210}}}

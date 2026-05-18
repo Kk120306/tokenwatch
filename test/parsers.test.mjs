@@ -81,6 +81,31 @@ test("Claude parser accepts real text prompts and ignores internal user entries"
   })), null);
 });
 
+test("Claude parser covers sanitized real-world Claude Code fixture", async () => {
+  const lines = (await readFile("test/fixtures/claude-realistic.jsonl", "utf8")).trimEnd().split("\n");
+  const parser = createClaudeParser();
+  const turns = lines.map((line) => parser.parseLine(line)).filter(Boolean);
+
+  assert.equal(turns.length, 2);
+  assert.equal(turns[0].model, "claude-sonnet-4-6");
+  assert.equal(turns[0].timestampIso, "2026-05-18T01:00:08.000Z");
+  assert.equal(turns[0].promptText, "Summarize the token budget for this session");
+  assert.deepEqual(turns[0].usage, {
+    inputTokens: 2400,
+    cachedInputTokens: 1600,
+    outputTokens: 320,
+    reasoningTokens: 0
+  });
+  assert.equal(turns[1].model, "claude-haiku-4-5-20251001");
+  assert.equal(turns[1].promptText, "Refactor the report export to include JSON");
+  assert.deepEqual(turns[1].usage, {
+    inputTokens: 1800,
+    cachedInputTokens: 900,
+    outputTokens: 210,
+    reasoningTokens: 0
+  });
+});
+
 test("Codex parser extracts response.completed usage from SQLite log rows", async () => {
   const body = await readFile("test/fixtures/codex-response-completed.txt", "utf8");
 
@@ -125,6 +150,34 @@ test("Codex SQLite parser attaches preceding user prompt text to response usage"
     feedback_log_body: 'Received message {"type":"response.completed","response":{"model":"gpt-5.5","usage":{"input_tokens":10,"output_tokens":2}}}'
   });
   assert.equal(nextTurn.promptText, null);
+});
+
+test("Codex SQLite parser covers sanitized feedback-log fixture", async () => {
+  const parser = createCodexSqliteParser();
+  const rows = (await readFile("test/fixtures/codex-sqlite-feedback-realistic.txt", "utf8"))
+    .trimEnd()
+    .split("\n")
+    .map((feedback_log_body, index) => ({
+      rowid: index + 1,
+      feedback_log_body
+    }));
+  const turns = rows.map((row) => parser.parseRow(row)).filter(Boolean);
+
+  assert.equal(turns.length, 2);
+  assert.equal(turns[0].promptText, "Investigate token spikes in the current run");
+  assert.deepEqual(turns[0].usage, {
+    inputTokens: 4242,
+    cachedInputTokens: 4000,
+    outputTokens: 321,
+    reasoningTokens: 80
+  });
+  assert.equal(turns[1].promptText, null);
+  assert.deepEqual(turns[1].usage, {
+    inputTokens: 50,
+    cachedInputTokens: 10,
+    outputTokens: 5,
+    reasoningTokens: 0
+  });
 });
 
 test("Codex parser supports legacy cached_input_tokens shape in response usage", () => {
@@ -192,6 +245,37 @@ test("Codex JSONL parser extracts rollout prompt text and token_count usage", ()
     cachedInputTokens: 45400,
     outputTokens: 1600,
     reasoningTokens: 516
+  });
+});
+
+test("Codex JSONL parser covers sanitized rollout fixture", async () => {
+  const lines = (await readFile("test/fixtures/codex-rollout-realistic.jsonl", "utf8")).trimEnd().split("\n");
+  const parser = createCodexJsonlParser({ model: "gpt-5.5" });
+  const turns = lines.map((line) => parser.parseLine(line)).filter(Boolean);
+
+  assert.equal(turns.length, 3);
+  assert.equal(turns[0].promptText, "Analyze prompt costs by model");
+  assert.equal(turns[0].timestampIso, "2026-05-18T02:00:01.000Z");
+  assert.equal(turns[0].contextWindow, 237500);
+  assert.deepEqual(turns[0].usage, {
+    inputTokens: 1000,
+    cachedInputTokens: 700,
+    outputTokens: 100,
+    reasoningTokens: 25
+  });
+  assert.equal(turns[1].updateKey, turns[0].updateKey);
+  assert.deepEqual(turns[1].usage, {
+    inputTokens: 1500,
+    cachedInputTokens: 1100,
+    outputTokens: 150,
+    reasoningTokens: 35
+  });
+  assert.equal(turns[2].promptText, "Build a privacy-safe export toggle");
+  assert.deepEqual(turns[2].usage, {
+    inputTokens: 2200,
+    cachedInputTokens: 1800,
+    outputTokens: 240,
+    reasoningTokens: 60
   });
 });
 

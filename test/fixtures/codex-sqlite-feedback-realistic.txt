@@ -1,0 +1,4 @@
+Received message {"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Investigate token spikes in the current run"}]}}
+Received message {"type":"event_msg","payload":{"type":"response.completed","response":{"model":"gpt-5.5","usage":{"input_tokens":4242,"input_tokens_details":{"cached_tokens":4000},"output_tokens":321,"reasoning_output_tokens":80,"total_tokens":4643}}}}
+Received message {"type":"event_msg","payload":{"type":"user_message","role":"developer","message":"internal developer instruction should not attach"}}
+Received message {"type":"response.completed","response":{"model":"gpt-5.5","usage":{"input_tokens":50,"cached_input_tokens":10,"output_tokens":5}}}
