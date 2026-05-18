@@ -16,6 +16,7 @@ type InitStatus = "created" | "updated" | "exists";
 interface InitArgs {
   dailyBudgetUsd?: number;
   weeklyBudgetUsd?: number;
+  monthlyBudgetUsd?: number;
   alertAt?: number;
   redactPrompts?: boolean;
   showPrompts?: boolean;
@@ -27,6 +28,7 @@ export interface InitOptions {
   baseDir?: string;
   dailyBudgetUsd?: number;
   weeklyBudgetUsd?: number;
+  monthlyBudgetUsd?: number;
   alertAt?: number;
   redactPrompts?: boolean;
   showPrompts?: boolean;
@@ -51,6 +53,7 @@ export async function runInit(argv: readonly string[] = [], version = "0.0.0"): 
   const report = createInitReport({
     dailyBudgetUsd: args.dailyBudgetUsd ?? interactiveOptions.dailyBudgetUsd,
     weeklyBudgetUsd: args.weeklyBudgetUsd ?? interactiveOptions.weeklyBudgetUsd,
+    monthlyBudgetUsd: args.monthlyBudgetUsd ?? interactiveOptions.monthlyBudgetUsd,
     alertAt: args.alertAt ?? interactiveOptions.alertAt,
     redactPrompts: args.redactPrompts ?? interactiveOptions.redactPrompts,
     showPrompts: args.showPrompts ?? interactiveOptions.showPrompts
@@ -67,6 +70,7 @@ export function createInitReport(options: InitOptions = {}, version = "0.0.0"): 
     ...current,
     dailyBudgetUsd: options.dailyBudgetUsd ?? current.dailyBudgetUsd,
     weeklyBudgetUsd: options.weeklyBudgetUsd ?? current.weeklyBudgetUsd,
+    monthlyBudgetUsd: options.monthlyBudgetUsd ?? current.monthlyBudgetUsd,
     alertAt: options.alertAt ?? current.alertAt,
     redactPromptText: options.showPrompts === true
       ? false
@@ -112,6 +116,7 @@ function renderInitReport(
     `- Write: ${wrote ? "saved" : "unchanged"}`,
     `- Daily budget: ${config.dailyBudgetUsd === null ? "none" : `$${config.dailyBudgetUsd}`}`,
     `- Weekly budget: ${config.weeklyBudgetUsd === null ? "none" : `$${config.weeklyBudgetUsd}`}`,
+    `- Monthly budget: ${config.monthlyBudgetUsd === null ? "none" : `$${config.monthlyBudgetUsd}`}`,
     `- Alert threshold: ${Math.round(config.alertAt * 100)}%`,
     `- Redaction: ${config.redactPromptText ? "enabled" : "disabled"}`,
     `- Topic rules: ${config.topicRules.length}`,
@@ -147,6 +152,9 @@ async function promptForInitOptions(args: InitArgs): Promise<InitOptions> {
     }
     if (args.weeklyBudgetUsd === undefined) {
       options.weeklyBudgetUsd = parseOptionalPositiveAmount(await rl.question("Weekly budget USD (blank for none): "));
+    }
+    if (args.monthlyBudgetUsd === undefined) {
+      options.monthlyBudgetUsd = parseOptionalPositiveAmount(await rl.question("Monthly budget USD (blank for none): "));
     }
     if (args.alertAt === undefined) {
       options.alertAt = parseOptionalAlertAt(await rl.question("Budget alert threshold 0-1 (blank for 0.8): "));
@@ -186,6 +194,11 @@ function parseInitArgs(argv: readonly string[]): InitArgs {
     }
     if (arg === "--weekly-budget") {
       args.weeklyBudgetUsd = parsePositiveAmount(requireValue(argv, index, arg), arg);
+      index += 1;
+      continue;
+    }
+    if (arg === "--monthly-budget") {
+      args.monthlyBudgetUsd = parsePositiveAmount(requireValue(argv, index, arg), arg);
       index += 1;
       continue;
     }
@@ -241,7 +254,7 @@ function printInitHelp(): void {
   console.log(`tokenwatch init
 
 Usage:
-  tokenwatch init [--non-interactive] [--redact-prompts|--show-prompts] [--daily-budget <amount>] [--weekly-budget <amount>] [--alert-at <pct>]
+  tokenwatch init [--non-interactive] [--redact-prompts|--show-prompts] [--daily-budget <amount>] [--weekly-budget <amount>] [--monthly-budget <amount>] [--alert-at <pct>]
   tokenwatch setup [same options]
 
 Options:
@@ -250,6 +263,7 @@ Options:
   --show-prompts          Save config that shows prompt text in tokenwatch by default
   --daily-budget <amount> Save a daily budget in USD
   --weekly-budget <amount> Save a weekly budget in USD
+  --monthly-budget <amount> Save a monthly budget in USD
   --alert-at <pct>        Save budget alert threshold from 0.0 to 1.0
   -h, --help              Show this help.
 `);

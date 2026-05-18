@@ -107,6 +107,7 @@ test("doctor report validates ready, degraded, missing, and config-error setup s
       config: {
         dailyBudgetUsd: 5,
         weeklyBudgetUsd: null,
+        monthlyBudgetUsd: null,
         alertAt: 0.8,
         topicRules: [{ topic: "billing", keywords: ["stripe"] }],
         redactPromptText: true
@@ -184,6 +185,7 @@ function readyInput() {
       config: {
         dailyBudgetUsd: null,
         weeklyBudgetUsd: null,
+        monthlyBudgetUsd: null,
         alertAt: 0.8,
         topicRules: [],
         redactPromptText: false

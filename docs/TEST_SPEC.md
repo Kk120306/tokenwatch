@@ -14,9 +14,10 @@
 
 ## Configuration Tests
 
-- `~/.tokenwatch/config.json` loads budget values, alert threshold, prompt redaction preference, and valid configured topic rules.
+- `~/.tokenwatch/config.json` loads daily, weekly, and monthly budget values, alert threshold, prompt redaction preference, and valid configured topic rules.
 - Invalid configured topic rules are ignored without breaking default configuration loading.
-- First-run init creates, preserves, and updates tokenwatch config without touching Claude Code or Codex CLI storage.
+- First-run init creates, preserves, and updates tokenwatch config, including monthly budgets, without touching Claude Code or Codex CLI storage.
+- Spend records persist and reset across daily, weekly, and monthly budget boundaries.
 
 ## Pricing Tests
 

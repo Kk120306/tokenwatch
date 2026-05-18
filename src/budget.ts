@@ -7,6 +7,8 @@ export interface SpendRecord {
   dailyDate: string;
   weeklyTotal: number;
   weeklyStartDate: string;
+  monthlyTotal: number;
+  monthlyStartDate: string;
 }
 
 export function loadSpend(baseDir = getTokenwatchDir(), now = new Date()): SpendRecord {
@@ -22,7 +24,9 @@ export function loadSpend(baseDir = getTokenwatchDir(), now = new Date()): Spend
       dailyTotal: positiveNumber(parsed.dailyTotal),
       dailyDate: typeof parsed.dailyDate === "string" ? parsed.dailyDate : fallback.dailyDate,
       weeklyTotal: positiveNumber(parsed.weeklyTotal),
-      weeklyStartDate: typeof parsed.weeklyStartDate === "string" ? parsed.weeklyStartDate : fallback.weeklyStartDate
+      weeklyStartDate: typeof parsed.weeklyStartDate === "string" ? parsed.weeklyStartDate : fallback.weeklyStartDate,
+      monthlyTotal: positiveNumber(parsed.monthlyTotal),
+      monthlyStartDate: typeof parsed.monthlyStartDate === "string" ? parsed.monthlyStartDate : fallback.monthlyStartDate
     }, now);
   } catch {
     return fallback;
@@ -42,7 +46,8 @@ export function addSpend(costUsd: number, baseDir = getTokenwatchDir(), now = ne
   const next = {
     ...current,
     dailyTotal: Math.max(0, current.dailyTotal + costUsd),
-    weeklyTotal: Math.max(0, current.weeklyTotal + costUsd)
+    weeklyTotal: Math.max(0, current.weeklyTotal + costUsd),
+    monthlyTotal: Math.max(0, current.monthlyTotal + costUsd)
   };
   saveSpend(next, baseDir);
   return next;
@@ -64,6 +69,11 @@ export function getProjectedWeeklySpend(weeklyTotal: number, sessionStart: Date,
   return (weeklyTotal / elapsedHours) * 24 * 7;
 }
 
+export function getProjectedMonthlySpend(monthlyTotal: number, sessionStart: Date, now = new Date()): number {
+  const elapsedHours = Math.max((now.getTime() - sessionStart.getTime()) / 3_600_000, 1 / 60);
+  return (monthlyTotal / elapsedHours) * 24 * daysInMonth(now);
+}
+
 export function getDailyResetDate(now = new Date()): Date {
   return new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
 }
@@ -72,6 +82,10 @@ export function getWeeklyResetDate(now = new Date()): Date {
   const currentDay = now.getDay();
   const daysUntilMonday = currentDay === 0 ? 1 : 8 - currentDay;
   return new Date(now.getFullYear(), now.getMonth(), now.getDate() + daysUntilMonday);
+}
+
+export function getMonthlyResetDate(now = new Date()): Date {
+  return new Date(now.getFullYear(), now.getMonth() + 1, 1);
 }
 
 export function formatDateKey(date: Date): string {
@@ -89,23 +103,32 @@ export function getWeekStartDateKey(date: Date): string {
   return formatDateKey(start);
 }
 
+export function getMonthStartDateKey(date: Date): string {
+  return formatDateKey(new Date(date.getFullYear(), date.getMonth(), 1));
+}
+
 function emptySpend(now: Date): SpendRecord {
   return {
     dailyTotal: 0,
     dailyDate: formatDateKey(now),
     weeklyTotal: 0,
-    weeklyStartDate: getWeekStartDateKey(now)
+    weeklyStartDate: getWeekStartDateKey(now),
+    monthlyTotal: 0,
+    monthlyStartDate: getMonthStartDateKey(now)
   };
 }
 
 function normalizeSpend(record: SpendRecord, now: Date): SpendRecord {
   const today = formatDateKey(now);
   const weekStart = getWeekStartDateKey(now);
+  const monthStart = getMonthStartDateKey(now);
   return {
     dailyTotal: record.dailyDate === today ? record.dailyTotal : 0,
     dailyDate: today,
     weeklyTotal: record.weeklyStartDate === weekStart ? record.weeklyTotal : 0,
-    weeklyStartDate: weekStart
+    weeklyStartDate: weekStart,
+    monthlyTotal: record.monthlyStartDate === monthStart ? record.monthlyTotal : 0,
+    monthlyStartDate: monthStart
   };
 }
 
@@ -113,4 +136,8 @@ function positiveNumber(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) && value > 0
     ? value
     : 0;
+}
+
+function daysInMonth(date: Date): number {
+  return new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
 }

@@ -63,7 +63,7 @@ tokenwatch --claude-glob "$HOME/.claude/projects/**/*.jsonl"
 tokenwatch --codex-db "$HOME/.codex/logs_2.sqlite"
 
 # List and select detected sessions
-tokenwatch init --redact-prompts --daily-budget 5 --weekly-budget 25
+tokenwatch init --redact-prompts --daily-budget 5 --weekly-budget 25 --monthly-budget 100
 tokenwatch doctor
 tokenwatch doctor --json
 tokenwatch sessions
@@ -77,8 +77,8 @@ tokenwatch --topic documentation
 tokenwatch --redact-prompts
 tokenwatch export --json --redact-prompts
 
-# Track local daily and weekly budgets
-tokenwatch --daily-budget 5 --weekly-budget 25 --alert-at 0.8
+# Track local daily, weekly, and monthly budgets
+tokenwatch --daily-budget 5 --weekly-budget 25 --monthly-budget 100 --alert-at 0.8
 tokenwatch --reset-budget
 
 # Export the most recent detected session
@@ -117,7 +117,7 @@ tokenwatch export --csv
 - Cost Tracking: Estimate cost from bundled `pricing.json` data with safe zero-cost fallback for unknown models.
 - Cache Visibility: Show cached input tokens, cache hit rates, cache grades, and estimated cache savings.
 - Context Pressure: Estimate context-window usage for known models.
-- Budget Tracking: Persist daily and weekly spend under `~/.tokenwatch`.
+- Budget Tracking: Persist daily, weekly, and monthly spend under `~/.tokenwatch`.
 - Topic Grouping: Auto-classify prompt topics, add local keyword rules, or force a manual topic with `--topic`.
 - Prompt Privacy: Replace captured prompt text with `[redacted]` in the dashboard and reports.
 - Model Recommendations: Compare observed model costs by topic after enough prompts are available.
@@ -153,8 +153,9 @@ tokenwatch export [export-options]
 | `--redact-prompts`         | Replace captured prompt text with `[redacted]` in the TUI and exports.                   |
 | `--daily-budget <amount>`  | Daily budget in USD. Overrides `~/.tokenwatch/config.json`.                              |
 | `--weekly-budget <amount>` | Weekly budget in USD. Overrides `~/.tokenwatch/config.json`.                             |
+| `--monthly-budget <amount>`| Monthly budget in USD. Overrides `~/.tokenwatch/config.json`.                            |
 | `--alert-at <pct>`         | Budget alert threshold from `0.0` to `1.0`. Default: `0.8`.                              |
-| `--reset-budget`           | Reset persisted daily and weekly spend totals, then start watching.                      |
+| `--reset-budget`           | Reset persisted daily, weekly, and monthly spend totals, then start watching.            |
 | `-h`, `--help`             | Show help.                                                                               |
 
 
@@ -185,7 +186,7 @@ Environment variables:
 
 Run `tokenwatch doctor` after installation or when prompt rows do not appear. It is read-only: it reports detected Claude Code and Codex CLI storage, prompt visibility, config status, pricing freshness, warnings, and suggested `tokenwatch --session ...` commands. Exit codes are `0` for ready, `1` for usable but degraded, `2` when no supported logs are found, and `3` for config/path errors.
 
-Run `tokenwatch init` to create or update `~/.tokenwatch/config.json`. In a terminal it prompts for prompt redaction and budgets; in scripts use flags such as `tokenwatch init --non-interactive --redact-prompts --daily-budget 5 --weekly-budget 25`. `tokenwatch setup` is an alias. The command writes only tokenwatch's own config file and never modifies Claude Code or Codex CLI storage.
+Run `tokenwatch init` to create or update `~/.tokenwatch/config.json`. In a terminal it prompts for prompt redaction and budgets; in scripts use flags such as `tokenwatch init --non-interactive --redact-prompts --daily-budget 5 --weekly-budget 25 --monthly-budget 100`. `tokenwatch setup` is an alias. The command writes only tokenwatch's own config file and never modifies Claude Code or Codex CLI storage.
 
 
 Optional configuration:
@@ -194,6 +195,7 @@ Optional configuration:
 {
   "dailyBudgetUsd": 5,
   "weeklyBudgetUsd": 25,
+  "monthlyBudgetUsd": 100,
   "alertAt": 0.8,
   "redactPromptText": false,
   "topicRules": [

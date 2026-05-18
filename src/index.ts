@@ -25,6 +25,7 @@ interface CliArgs {
   topic?: string;
   dailyBudgetUsd?: number;
   weeklyBudgetUsd?: number;
+  monthlyBudgetUsd?: number;
   alertAt?: number;
   redactPrompts: boolean;
   resetBudget: boolean;
@@ -234,6 +235,11 @@ function parseArgs(argv: readonly string[]): CliArgs {
       index += 1;
       continue;
     }
+    if (arg === "--monthly-budget") {
+      args.monthlyBudgetUsd = parsePositiveAmount(requireValue(argv, index, arg), arg);
+      index += 1;
+      continue;
+    }
     if (arg === "--alert-at") {
       args.alertAt = parseAlertAt(requireValue(argv, index, arg), arg);
       index += 1;
@@ -256,6 +262,7 @@ function applyBudgetOverrides(config: TokenwatchConfig, args: CliArgs): Tokenwat
   return {
     dailyBudgetUsd: args.dailyBudgetUsd ?? config.dailyBudgetUsd,
     weeklyBudgetUsd: args.weeklyBudgetUsd ?? config.weeklyBudgetUsd,
+    monthlyBudgetUsd: args.monthlyBudgetUsd ?? config.monthlyBudgetUsd,
     alertAt: args.alertAt ?? config.alertAt,
     topicRules: config.topicRules,
     redactPromptText: args.redactPrompts || config.redactPromptText
@@ -313,11 +320,11 @@ function printHelp(): void {
 
 Usage:
   tokenwatch export [--md] [--csv] [--json] [--redact-prompts] [--session <path>] [--session-source <claude|codex>] [--out <dir>]
-  tokenwatch init [--redact-prompts] [--daily-budget <amount>] [--weekly-budget <amount>]
+  tokenwatch init [--redact-prompts] [--daily-budget <amount>] [--weekly-budget <amount>] [--monthly-budget <amount>]
   tokenwatch sessions [--json]
   tokenwatch doctor [--json]
   tokenwatch pricing
-  tokenwatch [--session <path>] [--session-source <claude|codex>] [--claude-glob <glob>] [--codex-db <path>] [--topic <name>] [--redact-prompts] [--daily-budget <amount>] [--weekly-budget <amount>]
+  tokenwatch [--session <path>] [--session-source <claude|codex>] [--claude-glob <glob>] [--codex-db <path>] [--topic <name>] [--redact-prompts] [--daily-budget <amount>] [--weekly-budget <amount>] [--monthly-budget <amount>]
 
 Options:
   export               Write Markdown, CSV, and/or JSON reports without launching the TUI
@@ -337,8 +344,9 @@ Options:
   --redact-prompts      Replace captured prompt text with [redacted] in the TUI and exports
   --daily-budget <amount>   Daily budget in USD. Overrides ~/.tokenwatch/config.json
   --weekly-budget <amount>  Weekly budget in USD. Overrides ~/.tokenwatch/config.json
+  --monthly-budget <amount> Monthly budget in USD. Overrides ~/.tokenwatch/config.json
   --alert-at <pct>          Alert threshold from 0.0 to 1.0. Default: 0.8
-  --reset-budget            Reset persisted daily and weekly spend totals, then start watching
+  --reset-budget            Reset persisted daily, weekly, and monthly spend totals, then start watching
   -h, --help            Show this help.
 
 Environment:

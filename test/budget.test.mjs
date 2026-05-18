@@ -5,7 +5,10 @@ import { join } from "node:path";
 import test from "node:test";
 import {
   addSpend,
+  getMonthlyResetDate,
+  getMonthStartDateKey,
   getProjectedDailySpend,
+  getProjectedMonthlySpend,
   getProjectedWeeklySpend,
   loadSpend,
   resetSpend
@@ -19,6 +22,7 @@ test("budget config loads defaults and validates configured values", async () =>
     assert.deepEqual(loadConfig(dir), {
       dailyBudgetUsd: null,
       weeklyBudgetUsd: null,
+      monthlyBudgetUsd: null,
       alertAt: 0.8,
       topicRules: [],
       redactPromptText: false
@@ -28,6 +32,7 @@ test("budget config loads defaults and validates configured values", async () =>
     await writeFile(join(dir, "config.json"), JSON.stringify({
       dailyBudgetUsd: 5,
       weeklyBudgetUsd: 25,
+      monthlyBudgetUsd: 100,
       alertAt: 0.75,
       redactPromptText: true,
       topicRules: [
@@ -40,6 +45,7 @@ test("budget config loads defaults and validates configured values", async () =>
     assert.deepEqual(loadConfig(dir), {
       dailyBudgetUsd: 5,
       weeklyBudgetUsd: 25,
+      monthlyBudgetUsd: 100,
       alertAt: 0.75,
       topicRules: [
         { topic: "billing", keywords: ["invoice", "stripe", "refund"] }
@@ -51,11 +57,12 @@ test("budget config loads defaults and validates configured values", async () =>
   }
 });
 
-test("spend records persist and reset on daily and weekly boundaries", async () => {
+test("spend records persist and reset on daily, weekly, and monthly boundaries", async () => {
   const dir = join(tmpdir(), `tokenwatch-spend-${Date.now()}`);
   const monday = new Date("2026-05-18T10:00:00");
   const tuesday = new Date("2026-05-19T10:00:00");
   const nextMonday = new Date("2026-05-25T10:00:00");
+  const nextMonth = new Date("2026-06-01T10:00:00");
 
   try {
     let spend = resetSpend(dir, monday);
@@ -63,23 +70,35 @@ test("spend records persist and reset on daily and weekly boundaries", async () 
       dailyTotal: 0,
       dailyDate: "2026-05-18",
       weeklyTotal: 0,
-      weeklyStartDate: "2026-05-18"
+      weeklyStartDate: "2026-05-18",
+      monthlyTotal: 0,
+      monthlyStartDate: "2026-05-01"
     });
 
     spend = addSpend(1.25, dir, monday);
     assert.equal(spend.dailyTotal, 1.25);
     assert.equal(spend.weeklyTotal, 1.25);
+    assert.equal(spend.monthlyTotal, 1.25);
 
     spend = loadSpend(dir, tuesday);
     assert.equal(spend.dailyTotal, 0);
     assert.equal(spend.dailyDate, "2026-05-19");
     assert.equal(spend.weeklyTotal, 1.25);
     assert.equal(spend.weeklyStartDate, "2026-05-18");
+    assert.equal(spend.monthlyTotal, 1.25);
+    assert.equal(spend.monthlyStartDate, "2026-05-01");
 
     spend = loadSpend(dir, nextMonday);
     assert.equal(spend.dailyTotal, 0);
     assert.equal(spend.weeklyTotal, 0);
     assert.equal(spend.weeklyStartDate, "2026-05-25");
+    assert.equal(spend.monthlyTotal, 1.25);
+
+    spend = loadSpend(dir, nextMonth);
+    assert.equal(spend.dailyTotal, 0);
+    assert.equal(spend.weeklyTotal, 0);
+    assert.equal(spend.monthlyTotal, 0);
+    assert.equal(spend.monthlyStartDate, "2026-06-01");
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -91,6 +110,9 @@ test("budget projections extrapolate current spend rate", () => {
 
   assert.equal(getProjectedDailySpend(6, start, now), 24);
   assert.equal(getProjectedWeeklySpend(6, start, now), 168);
+  assert.equal(getProjectedMonthlySpend(6, start, now), 744);
+  assert.equal(getMonthStartDateKey(now), "2026-05-01");
+  assert.equal(getMonthStartDateKey(getMonthlyResetDate(now)), "2026-06-01");
 });
 
 test("init creates and updates tokenwatch config without touching source logs", async () => {
@@ -101,6 +123,7 @@ test("init creates and updates tokenwatch config without touching source logs", 
       redactPrompts: true,
       dailyBudgetUsd: 5,
       weeklyBudgetUsd: 25,
+      monthlyBudgetUsd: 100,
       alertAt: 0.75
     }, "0.1.0");
 
@@ -111,6 +134,7 @@ test("init creates and updates tokenwatch config without touching source logs", 
     assert.deepEqual(loadConfig(dir), {
       dailyBudgetUsd: 5,
       weeklyBudgetUsd: 25,
+      monthlyBudgetUsd: 100,
       alertAt: 0.75,
       topicRules: [],
       redactPromptText: true
@@ -121,12 +145,13 @@ test("init creates and updates tokenwatch config without touching source logs", 
     assert.equal(unchanged.wrote, false);
     assert.match(unchanged.text, /Write: unchanged/);
 
-    const updated = createInitReport({ baseDir: dir, showPrompts: true, weeklyBudgetUsd: 50 }, "0.1.0");
+    const updated = createInitReport({ baseDir: dir, showPrompts: true, weeklyBudgetUsd: 50, monthlyBudgetUsd: 200 }, "0.1.0");
     assert.equal(updated.status, "updated");
     assert.equal(updated.wrote, true);
     assert.deepEqual(loadConfig(dir), {
       dailyBudgetUsd: 5,
       weeklyBudgetUsd: 50,
+      monthlyBudgetUsd: 200,
       alertAt: 0.75,
       topicRules: [],
       redactPromptText: false

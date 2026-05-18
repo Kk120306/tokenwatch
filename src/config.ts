@@ -6,6 +6,7 @@ import type { TopicRuleConfig } from "./types.js";
 export interface TokenwatchConfig {
   dailyBudgetUsd: number | null;
   weeklyBudgetUsd: number | null;
+  monthlyBudgetUsd: number | null;
   alertAt: number;
   topicRules: TopicRuleConfig[];
   redactPromptText: boolean;
@@ -14,6 +15,7 @@ export interface TokenwatchConfig {
 export const DEFAULT_CONFIG: TokenwatchConfig = {
   dailyBudgetUsd: null,
   weeklyBudgetUsd: null,
+  monthlyBudgetUsd: null,
   alertAt: 0.8,
   topicRules: [],
   redactPromptText: false
@@ -38,6 +40,7 @@ export function loadConfig(baseDir = getTokenwatchDir()): TokenwatchConfig {
     return {
       dailyBudgetUsd: nullablePositiveNumber(parsed.dailyBudgetUsd),
       weeklyBudgetUsd: nullablePositiveNumber(parsed.weeklyBudgetUsd),
+      monthlyBudgetUsd: nullablePositiveNumber(parsed.monthlyBudgetUsd),
       alertAt: validAlertAt(parsed.alertAt),
       topicRules: validTopicRules(parsed.topicRules),
       redactPromptText: parsed.redactPromptText === true
@@ -48,7 +51,7 @@ export function loadConfig(baseDir = getTokenwatchDir()): TokenwatchConfig {
 }
 
 export function hasBudget(config: TokenwatchConfig): boolean {
-  return config.dailyBudgetUsd !== null || config.weeklyBudgetUsd !== null;
+  return config.dailyBudgetUsd !== null || config.weeklyBudgetUsd !== null || config.monthlyBudgetUsd !== null;
 }
 
 export function saveConfig(config: TokenwatchConfig, baseDir = getTokenwatchDir()): string {
@@ -65,6 +68,7 @@ export function normalizeConfig(config: TokenwatchConfig): TokenwatchConfig {
   return {
     dailyBudgetUsd: nullablePositiveNumber(config.dailyBudgetUsd),
     weeklyBudgetUsd: nullablePositiveNumber(config.weeklyBudgetUsd),
+    monthlyBudgetUsd: nullablePositiveNumber(config.monthlyBudgetUsd),
     alertAt: validAlertAt(config.alertAt),
     topicRules: validTopicRules(config.topicRules),
     redactPromptText: config.redactPromptText === true

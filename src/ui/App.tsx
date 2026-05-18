@@ -2,7 +2,9 @@ import { Box, Text, useApp, useInput, useStdin, useStdout } from "ink";
 import { useEffect, useMemo, useState } from "react";
 import {
   getDailyResetDate,
+  getMonthlyResetDate,
   getProjectedDailySpend,
+  getProjectedMonthlySpend,
   getProjectedWeeklySpend,
   getWeeklyResetDate,
   type SpendRecord
@@ -319,26 +321,68 @@ function BudgetHeader({
   liveColor: string;
   liveDim: boolean;
 }): React.JSX.Element {
-  const budget = config.dailyBudgetUsd ?? config.weeklyBudgetUsd ?? 0;
-  const spent = config.dailyBudgetUsd !== null ? spend.dailyTotal : spend.weeklyTotal;
-  const label = config.dailyBudgetUsd !== null ? "today" : "week";
-  const ratio = budget <= 0 ? 0 : spent / budget;
-  const color = getBudgetColor(ratio);
-  const status = ratio > 1
+  const status = budgetStatuses(config, spend)[0] ?? {
+    label: "budget",
+    spent: 0,
+    budget: 0,
+    ratio: 0
+  };
+  const color = getBudgetColor(status.ratio);
+  const warning = status.ratio > 1
     ? "  ✗ OVER"
-    : ratio >= config.alertAt
-      ? `  ⚠ ${formatPercent(ratio)}`
+    : status.ratio >= config.alertAt
+      ? `  ⚠ ${formatPercent(status.ratio)}`
       : "";
 
   return (
     <Text>
       <Text color={color}>
-        {label} ~{formatUsd(spent)} / {formatUsd(budget)}  {budgetBar(ratio)}  {formatPercent(ratio)}{status}
+        {status.label} ~{formatUsd(status.spent)} / {formatUsd(status.budget)}  {budgetBar(status.ratio)}  {formatPercent(status.ratio)}{warning}
       </Text>
       {"  "}
       <Text color={liveColor} dimColor={liveDim}>● LIVE</Text>
     </Text>
   );
+}
+
+interface BudgetStatus {
+  label: string;
+  spent: number;
+  budget: number;
+  ratio: number;
+}
+
+function budgetStatuses(config: TokenwatchConfig, spend: SpendRecord): BudgetStatus[] {
+  const statuses: BudgetStatus[] = [];
+  if (config.dailyBudgetUsd !== null) {
+    statuses.push({
+      label: "today",
+      spent: spend.dailyTotal,
+      budget: config.dailyBudgetUsd,
+      ratio: budgetRatio(spend.dailyTotal, config.dailyBudgetUsd)
+    });
+  }
+  if (config.weeklyBudgetUsd !== null) {
+    statuses.push({
+      label: "week",
+      spent: spend.weeklyTotal,
+      budget: config.weeklyBudgetUsd,
+      ratio: budgetRatio(spend.weeklyTotal, config.weeklyBudgetUsd)
+    });
+  }
+  if (config.monthlyBudgetUsd !== null) {
+    statuses.push({
+      label: "month",
+      spent: spend.monthlyTotal,
+      budget: config.monthlyBudgetUsd,
+      ratio: budgetRatio(spend.monthlyTotal, config.monthlyBudgetUsd)
+    });
+  }
+  return statuses.sort((a, b) => b.ratio - a.ratio);
+}
+
+function budgetRatio(spent: number, budget: number): number {
+  return budget <= 0 ? 0 : spent / budget;
 }
 
 function Onboarding({ detectionSummary }: { detectionSummary: StorageDetectionSummary | null }): React.JSX.Element {
@@ -577,6 +621,7 @@ function BudgetSection({
   const now = new Date();
   const projectedDaily = getProjectedDailySpend(spend.dailyTotal, sessionStart, now);
   const projectedWeekly = getProjectedWeeklySpend(spend.weeklyTotal, sessionStart, now);
+  const projectedMonthly = getProjectedMonthlySpend(spend.monthlyTotal, sessionStart, now);
 
   return (
     <>
@@ -598,11 +643,22 @@ function BudgetSection({
           <Text>  Reset in             {formatResetDuration(getWeeklyResetDate(now), now)}</Text>
         </>
       ) : null}
+      {config.monthlyBudgetUsd !== null ? (
+        <>
+          <Text>  Monthly budget       {formatUsd(config.monthlyBudgetUsd)}</Text>
+          <Text>  Spent this month     ~{formatUsd(spend.monthlyTotal)}  ({formatPercent(spend.monthlyTotal / config.monthlyBudgetUsd)})</Text>
+          <Text>  Remaining this month ~{formatUsd(Math.max(0, config.monthlyBudgetUsd - spend.monthlyTotal))}</Text>
+          <Text>  Reset in             {formatResetDuration(getMonthlyResetDate(now), now)}</Text>
+        </>
+      ) : null}
       {config.dailyBudgetUsd !== null ? (
         <Text>  Projected daily spend  ~{formatUsd(projectedDaily)}  ({budgetVerdict(spend.dailyTotal, projectedDaily, config.dailyBudgetUsd)})</Text>
       ) : null}
       {config.weeklyBudgetUsd !== null ? (
         <Text>  Projected weekly spend ~{formatUsd(projectedWeekly)}  ({budgetVerdict(spend.weeklyTotal, projectedWeekly, config.weeklyBudgetUsd)})</Text>
+      ) : null}
+      {config.monthlyBudgetUsd !== null ? (
+        <Text>  Projected month spend  ~{formatUsd(projectedMonthly)}  ({budgetVerdict(spend.monthlyTotal, projectedMonthly, config.monthlyBudgetUsd)})</Text>
       ) : null}
     </>
   );

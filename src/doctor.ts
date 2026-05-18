@@ -274,6 +274,7 @@ function configLines(config: ConfigDiagnostics): string[] {
     `- Status: ${config.status} (${config.detail})`,
     `- Daily budget: ${config.config.dailyBudgetUsd === null ? "none" : `$${config.config.dailyBudgetUsd}`}`,
     `- Weekly budget: ${config.config.weeklyBudgetUsd === null ? "none" : `$${config.config.weeklyBudgetUsd}`}`,
+    `- Monthly budget: ${config.config.monthlyBudgetUsd === null ? "none" : `$${config.config.monthlyBudgetUsd}`}`,
     `- Redaction: ${config.config.redactPromptText ? "enabled" : "disabled"}`,
     `- Topic rules: ${config.config.topicRules.length}`
   ];
