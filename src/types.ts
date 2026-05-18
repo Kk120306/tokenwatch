@@ -4,11 +4,16 @@ export interface TokenUsage {
   inputTokens: number;
   cachedInputTokens: number;
   outputTokens: number;
+  reasoningTokens: number;
 }
 
 export interface TokenTurn {
+  updateKey?: string;
   source: SessionSource;
   model: string;
+  timestamp: Date;
+  timestampIso: string | null;
+  promptText: string | null;
   usage: TokenUsage;
 }
 
@@ -21,7 +26,27 @@ export interface SessionTotal {
   inputTokens: number;
   cachedInputTokens: number;
   outputTokens: number;
+  reasoningTokens: number;
   costUsd: number;
+}
+
+export type TopicConfidence = "auto" | "manual";
+
+export interface ParsedTurn {
+  updateKey?: string;
+  id: number;
+  timestamp: Date;
+  timestampIso: string | null;
+  model: string;
+  source: "claude" | "codex";
+  promptText: string | null;
+  inputTokens: number;
+  cachedTokens: number;
+  outputTokens: number;
+  reasoningTokens: number;
+  costUsd: number;
+  topic: string | null;
+  topicConfidence: TopicConfidence | null;
 }
 
 export interface PricingEntry {
@@ -32,10 +57,46 @@ export interface PricingEntry {
 
 export type PricingTable = Record<string, PricingEntry>;
 
+export type StorageFormat = "sqlite" | "jsonl" | "log" | "none";
+
+export interface FoundStorageResult {
+  source: SessionSource;
+  status: "found";
+  format: Exclude<StorageFormat, "none">;
+  path: string;
+  paths: string[];
+  pattern?: string;
+  model?: string;
+  detail: string;
+  warnings: string[];
+}
+
+export interface MissingStorageResult {
+  source: SessionSource;
+  status: "missing";
+  format: "none";
+  path: null;
+  paths: [];
+  detail: string;
+  warnings: string[];
+}
+
+export type StorageResult = FoundStorageResult | MissingStorageResult;
+export type CodexStorageResult = StorageResult & { source: "codex" };
+export type ClaudeStorageResult = StorageResult & { source: "claude" };
+
+export interface StorageDetectionSummary {
+  claude: ClaudeStorageResult;
+  codex: CodexStorageResult;
+}
+
 export interface WatcherOptions {
-  claudeGlob: string;
-  codexDbPath: string;
+  claudeGlob?: string;
+  codexDbPath?: string;
   pollIntervalMs: number;
+  detectionIntervalMs: number;
+  onDetection?: (summary: StorageDetectionSummary) => void;
+  logger?: (message: string) => void;
 }
 
 export interface ActiveSessionFile {
@@ -66,6 +127,7 @@ export interface CodexTokenCount {
   };
   cached_input_tokens?: number;
   output_tokens?: number;
+  reasoning_output_tokens?: number;
   total_tokens?: number;
 }
 

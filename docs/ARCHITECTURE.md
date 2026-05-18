@@ -23,3 +23,7 @@
 Claude turns come from `assistant` JSONL entries with `message.usage`. Codex turns come from `~/.codex/logs_2.sqlite` `logs` rows where `feedback_log_body` contains a `Received message {"type":"response.completed", ...}` JSON payload. Token counts are extracted from `response.usage.input_tokens`, `response.usage.input_tokens_details.cached_tokens`, and `response.usage.output_tokens`; the model comes from `response.model`.
 
 All parser failures are soft failures: malformed or unrelated JSONL lines and SQLite log rows are ignored.
+
+See `docs/DATA_STORAGE.md` for the observed Claude Code and Codex CLI storage
+locations, including Codex rollout JSONL `token_count` events and SQLite schema
+details.

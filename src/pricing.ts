@@ -27,3 +27,19 @@ export function estimateCostUsd(
     (usage.outputTokens / 1_000_000) * entry.outputPerMillion
   );
 }
+
+export function estimateCacheSavingsUsd(
+  model: string,
+  cachedTokens: number,
+  pricing: PricingTable
+): number {
+  const entry = pricing[model];
+  if (!entry) {
+    return 0;
+  }
+
+  return (
+    (cachedTokens / 1_000_000) *
+    Math.max(0, entry.inputPerMillion - entry.cachedInputPerMillion)
+  );
+}

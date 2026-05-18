@@ -1,13 +1,19 @@
 #!/usr/bin/env node
-import { basename } from "node:path";
-import { formatSeparator, formatSessionTotal, formatTurn, addToTotal, createEmptyTotal } from "./display.js";
-import { estimateCostUsd, loadPricing } from "./pricing.js";
-import { DEFAULT_WATCHER_OPTIONS, startTokenWatcher } from "./watcher.js";
-import type { SessionTotal, TurnSummary, TokenTurn, WatcherOptions } from "./types.js";
+import { readFileSync } from "node:fs";
+import { dirname, relative } from "node:path";
+import { fileURLToPath } from "node:url";
+import React from "react";
+import { render, type Instance } from "ink";
+import { loadPricing } from "./pricing.js";
+import { createParsedTurn } from "./turns.js";
+import App from "./ui/App.js";
+import { DEFAULT_WATCHER_OPTIONS, startTokenWatcher, type TokenWatcher } from "./watcher.js";
+import type { ParsedTurn, PricingTable, StorageDetectionSummary, TokenTurn, WatcherOptions } from "./types.js";
 
 interface CliArgs {
   claudeGlob?: string;
   codexDbPath?: string;
+  topic?: string;
   help: boolean;
 }
 
@@ -19,38 +25,96 @@ async function main(argv: readonly string[]): Promise<void> {
   }
 
   const pricing = loadPricing();
+  const version = getPackageVersion();
+  const state: RuntimeState = {
+    turns: [],
+    detectionSummary: null,
+    warnings: [],
+    lastTurnReceivedAt: null
+  };
   let turnIndex = 0;
-  let total: SessionTotal = createEmptyTotal();
+  let watcher: TokenWatcher | null = null;
+  let app: Instance | null = null;
+  let closing = false;
+
+  const rerender = (): void => {
+    app?.rerender(renderApp(state, pricing, version, close));
+  };
+
   const options: WatcherOptions = {
     ...DEFAULT_WATCHER_OPTIONS,
-    claudeGlob: args.claudeGlob ?? DEFAULT_WATCHER_OPTIONS.claudeGlob,
-    codexDbPath: args.codexDbPath ?? DEFAULT_WATCHER_OPTIONS.codexDbPath
+    claudeGlob: args.claudeGlob,
+    codexDbPath: args.codexDbPath,
+    logger: (message) => {
+      state.warnings = [...state.warnings.slice(-4), message];
+      rerender();
+    },
+    onDetection: (summary) => {
+      state.detectionSummary = summary;
+      rerender();
+    }
   };
 
-  console.log(`tokenwatch watching ${basename(options.claudeGlob)} and ${options.codexDbPath}`);
+  app = render(renderApp(state, pricing, version, close), {
+    exitOnCtrlC: false,
+    patchConsole: false
+  });
 
-  const watcher = await startTokenWatcher((turn: TokenTurn) => {
-    const summary: TurnSummary = {
-      ...turn,
-      index: ++turnIndex,
-      costUsd: estimateCostUsd(turn.model, turn.usage, pricing)
-    };
-    total = addToTotal(total, summary);
-    console.log(formatTurn(summary));
-    console.log(formatSeparator());
-    console.log(formatSessionTotal(total));
+  watcher = await startTokenWatcher((turn: TokenTurn) => {
+    const existingIndex = turn.updateKey
+      ? state.turns.findIndex((existing) => existing.updateKey === turn.updateKey)
+      : -1;
+    const id = existingIndex >= 0
+      ? state.turns[existingIndex].id
+      : ++turnIndex;
+    const parsedTurn = createParsedTurn(turn, id, pricing, args.topic);
+    state.turns = existingIndex >= 0
+      ? state.turns.map((existing, index) => index === existingIndex ? parsedTurn : existing)
+      : [...state.turns, parsedTurn];
+    state.lastTurnReceivedAt = Date.now();
+    rerender();
   }, options);
-
-  const close = async (): Promise<void> => {
-    await watcher.close();
-    process.exit(0);
-  };
 
   process.on("SIGINT", () => {
     void close();
   });
   process.on("SIGTERM", () => {
     void close();
+  });
+
+  async function close(): Promise<void> {
+    if (closing) {
+      return;
+    }
+    closing = true;
+    await watcher?.close();
+    app?.unmount();
+    process.exit(0);
+  }
+}
+
+interface RuntimeState {
+  turns: ParsedTurn[];
+  detectionSummary: StorageDetectionSummary | null;
+  warnings: string[];
+  lastTurnReceivedAt: number | null;
+}
+
+function renderApp(
+  state: RuntimeState,
+  pricing: PricingTable,
+  version: string,
+  onQuit: () => void
+): React.ReactElement {
+  return React.createElement(App, {
+    turns: state.turns,
+    pricing,
+    detectionSummary: state.detectionSummary,
+    version,
+    warnings: state.warnings,
+    lastTurnReceivedAt: state.lastTurnReceivedAt,
+    inputEnabled: process.stdin.isTTY === true && typeof process.stdin.setRawMode === "function",
+    onQuit
   });
 }
 
@@ -72,6 +136,11 @@ function parseArgs(argv: readonly string[]): CliArgs {
       index += 1;
       continue;
     }
+    if (arg === "--topic") {
+      args.topic = requireValue(argv, index, arg);
+      index += 1;
+      continue;
+    }
     throw new Error(`Unknown argument: ${arg}`);
   }
   return args;
@@ -85,16 +154,36 @@ function requireValue(argv: readonly string[], index: number, flag: string): str
   return value;
 }
 
+function getPackageVersion(): string {
+  const packagePath = relativeToProjectRoot("package.json");
+  try {
+    const pkg = JSON.parse(readFileSync(packagePath, "utf8")) as { version?: string };
+    return pkg.version ?? "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
+}
+
+function relativeToProjectRoot(path: string): string {
+  const currentDir = dirname(fileURLToPath(import.meta.url));
+  return relative(process.cwd(), `${currentDir}/../${path}`);
+}
+
 function printHelp(): void {
   console.log(`tokenwatch
 
 Usage:
-  tokenwatch [--claude-glob <glob>] [--codex-db <path>]
+  tokenwatch [--claude-glob <glob>] [--codex-db <path>] [--topic <name>]
 
 Options:
-  --claude-glob <glob>  Claude Code JSONL glob. Default: ~/.claude/projects/**/*.jsonl
-  --codex-db <path>     Codex CLI SQLite database. Default: ~/.codex/logs_2.sqlite
+  --claude-glob <glob>  Claude Code JSONL glob. Default: auto-detect from $CLAUDE_HOME or ~/.claude
+  --codex-db <path>     Codex CLI SQLite database. Default: auto-detect from $CODEX_HOME or ~/.codex
+  --topic <name>        Manually tag every parsed prompt in this session with the given topic
   -h, --help            Show this help.
+
+Environment:
+  CODEX_HOME            Codex home directory to check before ~/.codex
+  CLAUDE_HOME           Claude Code home directory to check before ~/.claude
 `);
 }
 

@@ -1,8 +1,8 @@
 # tokenwatch
 
-`tokenwatch` is a minimal TypeScript CLI that watches Claude Code JSONL logs and Codex CLI's SQLite log database, then prints per-prompt token usage in real time.
+`tokenwatch` is a minimal TypeScript CLI that auto-detects Claude Code and Codex CLI storage, then prints per-prompt token usage in real time.
 
-It tails Claude Code's active JSONL session file and polls Codex CLI's `logs_2.sqlite` database for new response rows.
+It tails the active Claude Code or Codex JSONL session file when JSONL storage is detected, and it polls Codex CLI's `logs_2.sqlite` database when SQLite storage is available.
 
 ## Install
 
@@ -33,6 +33,15 @@ Optional custom paths:
 tokenwatch --claude-glob "$HOME/.claude/projects/**/*.jsonl" --codex-db "$HOME/.codex/logs_2.sqlite"
 ```
 
+Environment overrides:
+
+```sh
+CODEX_HOME="$HOME/.codex" tokenwatch
+CLAUDE_HOME="$HOME/.claude" tokenwatch
+```
+
+`CODEX_HOME` and `CLAUDE_HOME` are checked before the default `~/.codex` and `~/.claude` homes, so alternate CLI installations can be watched without custom flags.
+
 ## Output
 
 ```text
@@ -46,8 +55,14 @@ Screenshot placeholder: add a terminal screenshot here after the first real run.
 
 ## Supported Logs
 
-- Claude Code: watches `~/.claude/projects/**/*.jsonl` and reads assistant entries with `message.usage`.
-- Codex CLI: polls `~/.codex/logs_2.sqlite`, reads new `logs` rows whose message is a `response.completed` event, and extracts `response.usage`.
+At startup, tokenwatch prints a detection summary for each CLI and keeps re-checking storage every 30 seconds so new session files can be picked up mid-run.
+
+Detection order:
+
+- Claude Code: `$CLAUDE_HOME/projects/**/*.jsonl`, `~/.claude/projects/**/*.jsonl`, direct `*.jsonl` files, then JSONL files under `.data/`. It reads assistant entries with `message.usage`.
+- Codex CLI: `logs_2.sqlite`, session JSONL files under `sessions/`, direct `*.jsonl` files, then relevant files under `log/`. SQLite is preferred when present and readable; if it is locked, unreadable, or has an unexpected schema, tokenwatch warns and falls back to JSONL/log sources.
+
+Malformed JSONL lines, empty files, storage rotations, and missing sources are ignored gracefully. If a CLI is not detected, the startup summary shows an actionable hint such as setting `CODEX_HOME` or starting a session.
 
 ## Pricing
 

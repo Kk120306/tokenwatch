@@ -9,6 +9,7 @@ export function createEmptyTotal(): SessionTotal {
     inputTokens: 0,
     cachedInputTokens: 0,
     outputTokens: 0,
+    reasoningTokens: 0,
     costUsd: 0
   };
 }
@@ -18,6 +19,7 @@ export function addToTotal(total: SessionTotal, turn: TurnSummary): SessionTotal
     inputTokens: total.inputTokens + turn.usage.inputTokens,
     cachedInputTokens: total.cachedInputTokens + turn.usage.cachedInputTokens,
     outputTokens: total.outputTokens + turn.usage.outputTokens,
+    reasoningTokens: total.reasoningTokens + (turn.usage.reasoningTokens ?? 0),
     costUsd: total.costUsd + turn.costUsd
   };
 }

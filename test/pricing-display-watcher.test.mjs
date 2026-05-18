@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import test from "node:test";
 import { addToTotal, createEmptyTotal, formatSessionTotal, formatTurn } from "../dist/display.js";
-import { estimateCostUsd } from "../dist/pricing.js";
-import { findMostRecentSessionFile, getLatestCodexRowId, inspectPath, readCodexTurnsSince } from "../dist/watcher.js";
+import { estimateCostUsd, loadPricing } from "../dist/pricing.js";
+import { findMostRecentSessionFile, getLatestCodexRowId, inspectPath, readCodexTurnsSince, startTokenWatcher } from "../dist/watcher.js";
 
 test("pricing estimates known models and falls back to zero for unknown models", () => {
   const pricing = {
@@ -19,23 +19,38 @@ test("pricing estimates known models and falls back to zero for unknown models",
   const usage = {
     inputTokens: 1000,
     cachedInputTokens: 2000,
-    outputTokens: 3000
+    outputTokens: 3000,
+    reasoningTokens: 0
   };
 
   assert.equal(estimateCostUsd("gpt-5", usage, pricing), 0.032);
   assert.equal(estimateCostUsd("unknown", usage, pricing), 0);
 });
 
+test("bundled pricing includes current Codex GPT model rates", () => {
+  const pricing = loadPricing();
+  assert.equal(estimateCostUsd("gpt-5.5", {
+    inputTokens: 1000,
+    cachedInputTokens: 500,
+    outputTokens: 1000,
+    reasoningTokens: 0
+  }, pricing), 0.03525);
+});
+
 test("display formats prompt rows and totals", () => {
   const turn = {
     source: "claude",
     model: "claude-sonnet-4-6",
+    timestamp: new Date("2026-05-18T00:00:00.000Z"),
+    timestampIso: "2026-05-18T00:00:00.000Z",
+    promptText: "hello",
     index: 4,
     costUsd: 0.0023,
     usage: {
       inputTokens: 1842,
       cachedInputTokens: 1200,
-      outputTokens: 347
+      outputTokens: 347,
+      reasoningTokens: 0
     }
   };
 
@@ -101,17 +116,17 @@ test("Codex SQLite polling reads only response.completed rows newer than last ro
 
   const firstPoll = readCodexTurnsSince(db, baseline);
   assert.equal(firstPoll.lastRowId, 3);
-  assert.deepEqual(firstPoll.turns, [
-    {
-      source: "codex",
-      model: "gpt-5.5",
-      usage: {
-        inputTokens: 120,
-        cachedInputTokens: 20,
-        outputTokens: 30
-      }
-    }
-  ]);
+  assert.equal(firstPoll.turns.length, 1);
+  assert.equal(firstPoll.turns[0].source, "codex");
+  assert.equal(firstPoll.turns[0].model, "gpt-5.5");
+  assert.equal(firstPoll.turns[0].promptText, null);
+  assert.ok(firstPoll.turns[0].timestamp instanceof Date);
+  assert.deepEqual(firstPoll.turns[0].usage, {
+    inputTokens: 120,
+    cachedInputTokens: 20,
+    outputTokens: 30,
+    reasoningTokens: 0
+  });
 
   const secondPoll = readCodexTurnsSince(db, firstPoll.lastRowId);
   assert.equal(secondPoll.lastRowId, 3);
@@ -119,3 +134,185 @@ test("Codex SQLite polling reads only response.completed rows newer than last ro
 
   db.close();
 });
+
+test("Claude JSONL watcher tails from startup offset and ignores historical turns", async () => {
+  const dir = join(tmpdir(), `tokenwatch-tail-${Date.now()}`);
+  const path = join(dir, "session.jsonl");
+  const codexDbPath = join(dir, "logs_2.sqlite");
+  const turns = [];
+  let watcher;
+
+  try {
+    await mkdir(dir, { recursive: true });
+    createEmptyCodexLogs(codexDbPath);
+    await writeFile(path, [
+      JSON.stringify({ type: "user", message: { content: "historical prompt" } }),
+      JSON.stringify({ type: "assistant", message: { model: "claude-sonnet-4-6", usage: { input_tokens: 100, output_tokens: 10 } } }),
+      ""
+    ].join("\n"), "utf8");
+
+    watcher = await startTokenWatcher((turn) => turns.push(turn), {
+      claudeGlob: path,
+      codexDbPath,
+      pollIntervalMs: 10,
+      detectionIntervalMs: 10_000,
+      logger: () => {}
+    });
+
+    await appendFile(path, [
+      JSON.stringify({ type: "user", message: { content: "new prompt" } }),
+      JSON.stringify({ type: "assistant", message: { model: "claude-sonnet-4-6", usage: { input_tokens: 200, output_tokens: 20 } } }),
+      ""
+    ].join("\n"), "utf8");
+
+    await waitFor(() => turns.length === 1);
+    assert.equal(turns[0].promptText, "new prompt");
+    assert.deepEqual(turns[0].usage, {
+      inputTokens: 200,
+      cachedInputTokens: 0,
+      outputTokens: 20,
+      reasoningTokens: 0
+    });
+  } finally {
+    await watcher?.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("JSONL watcher detects appends after the initial scan with default polling", async () => {
+  const dir = join(tmpdir(), `tokenwatch-settled-${Date.now()}`);
+  const path = join(dir, "session.jsonl");
+  const codexDbPath = join(dir, "logs_2.sqlite");
+  const turns = [];
+  let watcher;
+
+  try {
+    await mkdir(dir, { recursive: true });
+    await writeFile(path, "", "utf8");
+    createEmptyCodexLogs(codexDbPath);
+
+    watcher = await startTokenWatcher((turn) => turns.push(turn), {
+      claudeGlob: path,
+      codexDbPath,
+      logger: () => {}
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    await appendFile(path, [
+      JSON.stringify({ type: "user", message: { content: "new prompt after startup" } }),
+      JSON.stringify({ type: "assistant", message: { model: "claude-sonnet-4-6", usage: { input_tokens: 200_000, output_tokens: 20_000 } } }),
+      ""
+    ].join("\n"), "utf8");
+
+    await waitFor(() => turns.length === 1, 3000);
+    assert.equal(turns[0].promptText, "new prompt after startup");
+    assert.equal(turns[0].model, "claude-sonnet-4-6");
+  } finally {
+    await watcher?.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("Codex state watcher tails startup rollout but reads a new mid-session thread from byte zero", async () => {
+  const dir = join(tmpdir(), `tokenwatch-codex-rollout-${Date.now()}`);
+  const statePath = join(dir, "state_5.sqlite");
+  const oldRolloutPath = join(dir, "old-rollout.jsonl");
+  const newRolloutPath = join(dir, "new-rollout.jsonl");
+  const turns = [];
+  let watcher;
+
+  try {
+    await mkdir(dir, { recursive: true });
+    await writeFile(oldRolloutPath, `${codexUserMessageLine("old prompt text")}\n${codexTokenCountLine(100, 10)}\n`, "utf8");
+    await writeFile(newRolloutPath, `${codexUserMessageLine("new prompt text")}\n${codexTokenCountLine(250, 25)}\n`, "utf8");
+
+    const initialDb = new Database(statePath);
+    initialDb.exec(`
+      CREATE TABLE threads (
+        rollout_path TEXT,
+        model TEXT,
+        updated_at_ms INTEGER NOT NULL
+      );
+    `);
+    const now = Date.now();
+    initialDb.prepare("INSERT INTO threads (rollout_path, model, updated_at_ms) VALUES (?, ?, ?)").run(oldRolloutPath, "gpt-5", now);
+    initialDb.close();
+
+    watcher = await startTokenWatcher((turn) => turns.push(turn), {
+      claudeGlob: join(dir, "missing-claude.jsonl"),
+      codexDbPath: statePath,
+      pollIntervalMs: 10,
+      detectionIntervalMs: 25,
+      logger: () => {}
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 75));
+    assert.deepEqual(turns, []);
+
+    const updatedDb = new Database(statePath);
+    updatedDb.prepare("INSERT INTO threads (rollout_path, model, updated_at_ms) VALUES (?, ?, ?)").run(newRolloutPath, "gpt-5.5", now + 1);
+    updatedDb.close();
+
+    await waitFor(() => turns.length === 1);
+    assert.equal(turns[0].model, "gpt-5.5");
+    assert.deepEqual(turns[0].usage, {
+      inputTokens: 250,
+      cachedInputTokens: 0,
+      outputTokens: 25,
+      reasoningTokens: 0
+    });
+  } finally {
+    await watcher?.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+function codexTokenCountLine(inputTokens, outputTokens) {
+  return JSON.stringify({
+    timestamp: "2026-05-18T00:00:00.000Z",
+    type: "event_msg",
+    payload: {
+      type: "token_count",
+      info: {
+        last_token_usage: {
+          input_tokens: inputTokens,
+          output_tokens: outputTokens
+        }
+      }
+    }
+  });
+}
+
+function codexUserMessageLine(message) {
+  return JSON.stringify({
+    timestamp: "2026-05-18T00:00:00.000Z",
+    type: "event_msg",
+    payload: {
+      type: "user_message",
+      message
+    }
+  });
+}
+
+function createEmptyCodexLogs(path) {
+  const db = new Database(path);
+  db.exec(`
+    CREATE TABLE logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      target TEXT NOT NULL,
+      feedback_log_body TEXT
+    );
+  `);
+  db.close();
+}
+
+async function waitFor(predicate, timeoutMs = 1000) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (predicate()) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  assert.fail("timed out waiting for condition");
+}

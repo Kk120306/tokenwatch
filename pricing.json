@@ -14,6 +14,21 @@
     "cachedInputPerMillion": 0.08,
     "outputPerMillion": 4
   },
+  "gpt-5.5": {
+    "inputPerMillion": 5,
+    "cachedInputPerMillion": 0.5,
+    "outputPerMillion": 30
+  },
+  "gpt-5.4": {
+    "inputPerMillion": 2.5,
+    "cachedInputPerMillion": 0.25,
+    "outputPerMillion": 15
+  },
+  "gpt-5.4-mini": {
+    "inputPerMillion": 0.75,
+    "cachedInputPerMillion": 0.075,
+    "outputPerMillion": 4.5
+  },
   "gpt-5": {
     "inputPerMillion": 1.25,
     "cachedInputPerMillion": 0.125,

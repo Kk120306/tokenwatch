@@ -1,19 +1,30 @@
-import { createReadStream, existsSync, promises as fs } from "node:fs";
-import { homedir } from "node:os";
-import { resolve } from "node:path";
+import { createReadStream, existsSync, promises as fs, statSync } from "node:fs";
 import { createInterface } from "node:readline";
 import Database from "better-sqlite3";
 import chokidar, { type FSWatcher } from "chokidar";
-import { parseClaudeLine } from "./parsers/claude.js";
-import { parseCodexLogRow } from "./parsers/codex.js";
-import type { ActiveSessionFile, CodexLogRow, SessionSource, TokenTurn, WatcherOptions } from "./types.js";
+import { detectClaudeStorage, detectCodexStorage } from "./detect.js";
+import { createClaudeParser } from "./parsers/claude.js";
+import { createCodexJsonlParser, parseCodexLogRow } from "./parsers/codex.js";
+import type {
+  ActiveSessionFile,
+  CodexLogRow,
+  CodexStorageResult,
+  FoundStorageResult,
+  SessionSource,
+  StorageDetectionSummary,
+  StorageResult,
+  TokenTurn,
+  WatcherOptions
+} from "./types.js";
 
 type SqliteDatabase = Database.Database;
+type LineParser = (line: string) => TokenTurn | null;
+type LineParserFactory = () => LineParser;
+type JsonlInitialReadMode = "tail" | "all";
 
 export const DEFAULT_WATCHER_OPTIONS: WatcherOptions = {
-  claudeGlob: resolve(homedir(), ".claude/projects/**/*.jsonl"),
-  codexDbPath: resolve(homedir(), ".codex/logs_2.sqlite"),
-  pollIntervalMs: 1000
+  pollIntervalMs: 1000,
+  detectionIntervalMs: 30_000
 };
 
 export interface TokenWatcher {
@@ -60,20 +71,185 @@ export async function startTokenWatcher(
   onTurn: (turn: TokenTurn) => void,
   options: WatcherOptions = DEFAULT_WATCHER_OPTIONS
 ): Promise<TokenWatcher> {
-  const claudeWatcher = await startClaudeJsonlWatcher(onTurn, options);
-  const codexPoller = startCodexSqlitePoller(onTurn, options);
+  const resolvedOptions: WatcherOptions = {
+    ...DEFAULT_WATCHER_OPTIONS,
+    ...options
+  };
+  const logger = resolvedOptions.logger ?? ((message: string): void => console.warn(message));
+
+  let closed = false;
+  let claudeWatcher: TokenWatcher | null = null;
+  let codexWatcher: TokenWatcher | null = null;
+  let claudeSignature = "";
+  let codexSignature = "";
+  let activeCodexSource: "rollout-jsonl" | "sqlite" | "none" = "none";
+  let codexStartupAnnouncementDone = false;
+  let codexModel: string | undefined;
+  let codexWaitingForSession = false;
+  let detectionTimer: NodeJS.Timeout | null = null;
+
+  const applyDetection = async (forceNotify: boolean): Promise<void> => {
+    if (closed) {
+      return;
+    }
+
+    const summary: StorageDetectionSummary = {
+      claude: detectClaudeStorage({ claudeGlob: resolvedOptions.claudeGlob }),
+      codex: detectCodexStorage({ codexDbPath: resolvedOptions.codexDbPath })
+    };
+
+    if (summary.codex.status === "found") {
+      codexModel = summary.codex.model;
+    }
+    codexWaitingForSession = summary.codex.status === "missing" && summary.codex.detail.includes("waiting for session");
+
+    const nextClaudeSignature = storageSignature(summary.claude);
+    const nextCodexSignature = storageSignature(summary.codex);
+    const changed = nextClaudeSignature !== claudeSignature || nextCodexSignature !== codexSignature;
+
+    if (forceNotify || changed) {
+      for (const warning of [...summary.claude.warnings, ...summary.codex.warnings]) {
+        logger(`tokenwatch: ${warning}`);
+      }
+    }
+
+    if (nextClaudeSignature !== claudeSignature) {
+      await claudeWatcher?.close();
+      claudeWatcher = await startWatcherForDetectedStorage(
+        summary.claude,
+        () => createClaudeParser().parseLine,
+        resolvedOptions,
+        logger,
+        claudeSignature === "" ? "tail" : "all"
+      );
+      claudeSignature = nextClaudeSignature;
+    }
+
+    if (nextCodexSignature !== codexSignature) {
+      const candidateSource = codexSourceFrom(summary.codex);
+
+      if (activeCodexSource !== "none" && candidateSource !== "none" && candidateSource !== activeCodexSource) {
+        // Lock to the first Codex source that wins to avoid duplicate turns from re-detection flips.
+      } else {
+        if (!codexStartupAnnouncementDone || (activeCodexSource === "none" && candidateSource !== "none")) {
+          activeCodexSource = candidateSource;
+          codexStartupAnnouncementDone = true;
+          if (activeCodexSource === "rollout-jsonl") {
+            logger("tokenwatch: codex \u2192 rollout jsonl \u2713");
+          } else if (activeCodexSource === "sqlite") {
+            logger("tokenwatch: codex \u2192 sqlite \u2713");
+          } else {
+            logger("tokenwatch: codex \u2192 waiting for session...");
+          }
+        }
+
+        // Ignore model-only changes to avoid restarting the JSONL reader from byte zero.
+        const shouldRestart = shouldRestartCodexWatcher(summary.codex, codexSignature);
+        if (shouldRestart) {
+          await codexWatcher?.close();
+          codexWatcher = await startCodexWatcher(
+            summary.codex,
+            onTurn,
+            resolvedOptions,
+            logger,
+            codexSignature === "" ? "tail" : "all",
+            () => codexModel
+          );
+        }
+        codexSignature = nextCodexSignature;
+        if (activeCodexSource === "none") {
+          activeCodexSource = candidateSource;
+        }
+      }
+    }
+
+    if (forceNotify || changed) {
+      resolvedOptions.onDetection?.(summary);
+    }
+  };
+
+  const scheduleDetection = (delayMs: number): void => {
+    if (detectionTimer) {
+      clearTimeout(detectionTimer);
+    }
+    detectionTimer = setTimeout(() => {
+      void runDetectionLoop();
+    }, delayMs);
+  };
+
+  const runDetectionLoop = async (): Promise<void> => {
+    await applyDetection(false);
+    const nextDelay = shouldPollCodexFast()
+      ? 2000
+      : resolvedOptions.detectionIntervalMs;
+    scheduleDetection(nextDelay);
+  };
+
+  const shouldPollCodexFast = (): boolean => {
+    return codexWaitingForSession;
+  };
+
+  await applyDetection(true);
+  scheduleDetection(shouldPollCodexFast() ? 2000 : resolvedOptions.detectionIntervalMs);
 
   return {
     close: async () => {
-      await claudeWatcher.close();
-      await codexPoller.close();
+      closed = true;
+      if (detectionTimer) {
+        clearTimeout(detectionTimer);
+      }
+      await claudeWatcher?.close();
+      await codexWatcher?.close();
     }
   };
+
+  async function startWatcherForDetectedStorage(
+    result: StorageResult,
+    parserFactory: LineParserFactory,
+    watcherOptions: WatcherOptions,
+    watcherLogger: (message: string) => void,
+    initialReadMode: JsonlInitialReadMode
+  ): Promise<TokenWatcher | null> {
+    if (result.status !== "found") {
+      return null;
+    }
+    return startJsonlWatcher(onTurn, result, parserFactory, watcherOptions, watcherLogger, initialReadMode);
+  }
+}
+
+function codexSourceFrom(result: CodexStorageResult): "rollout-jsonl" | "sqlite" | "none" {
+  if (result.status !== "found") {
+    return "none";
+  }
+  return result.format === "sqlite" ? "sqlite" : "rollout-jsonl";
+}
+
+function shouldRestartCodexWatcher(result: CodexStorageResult, previousSignature: string): boolean {
+  if (previousSignature === "") {
+    return true;
+  }
+  if (result.status !== "found") {
+    return true;
+  }
+  const parts = previousSignature.split(":");
+  const prevSource = parts[0];
+  const prevFormat = parts[1];
+  const prevPath = parts[2];
+  if (prevSource !== "codex") {
+    return true;
+  }
+  if (prevFormat !== result.format) {
+    return true;
+  }
+  if (prevPath !== result.path) {
+    return true;
+  }
+  return false;
 }
 
 export function getLatestCodexRowId(db: SqliteDatabase): number {
   const row = db
-    .prepare<[], MaxRowResult>("SELECT MAX(rowid) AS maxRowId FROM logs")
+    .prepare<[], MaxRowResult>("SELECT MAX(id) AS maxRowId FROM logs")
     .get();
   return row?.maxRowId ?? 0;
 }
@@ -89,13 +265,13 @@ export function readCodexTurnsSince(
 
   const rows = db
     .prepare<[number, number], CodexLogRow>(`
-      SELECT rowid AS rowid, feedback_log_body
+      SELECT id AS rowid, feedback_log_body
       FROM logs
-      WHERE rowid > ?
-        AND rowid <= ?
+      WHERE id > ?
+        AND id <= ?
         AND target = 'log'
         AND feedback_log_body LIKE 'Received message {"type":"response.completed"%'
-      ORDER BY rowid ASC
+      ORDER BY id ASC
     `)
     .all(lastRowId, maxRowId);
 
@@ -105,20 +281,60 @@ export function readCodexTurnsSince(
   };
 }
 
-async function startClaudeJsonlWatcher(
+async function startCodexWatcher(
+  result: CodexStorageResult,
   onTurn: (turn: TokenTurn) => void,
-  options: WatcherOptions
+  options: WatcherOptions,
+  logger: (message: string) => void,
+  initialReadMode: JsonlInitialReadMode,
+  getModel: () => string | undefined
+): Promise<TokenWatcher | null> {
+  if (result.status !== "found") {
+    return null;
+  }
+
+  if (result.format === "sqlite") {
+    return startCodexSqlitePoller(onTurn, result.path, options, logger);
+  }
+
+  return startJsonlWatcher(
+    onTurn,
+    result,
+    () => createCodexJsonlParser({ getModel }).parseLine,
+    options,
+    logger,
+    initialReadMode
+  );
+}
+
+async function startJsonlWatcher(
+  onTurn: (turn: TokenTurn) => void,
+  storage: FoundStorageResult,
+  parserFactory: LineParserFactory,
+  options: WatcherOptions,
+  logger: (message: string) => void,
+  initialReadMode: JsonlInitialReadMode
 ): Promise<TokenWatcher> {
   const files = new Map<string, ActiveSessionFile>();
   const offsets = new Map<string, number>();
+  const parsers = new Map<string, LineParser>();
   let activePath: string | null = null;
+  const watchTarget = storage.pattern ?? storage.paths;
 
-  const watcher = chokidar.watch(options.claudeGlob, {
-    ignoreInitial: false,
-    awaitWriteFinish: {
-      stabilityThreshold: options.pollIntervalMs,
-      pollInterval: options.pollIntervalMs
+  if (initialReadMode === "tail") {
+    for (const path of storage.paths) {
+      try {
+        offsets.set(path, statSync(path).size);
+      } catch (error) {
+        logger(`tokenwatch: skipped initial offset for ${storage.source} file ${path}: ${errorMessage(error)}`);
+      }
     }
+  }
+
+  const watcher: FSWatcher = chokidar.watch(watchTarget, {
+    ignoreInitial: false,
+    usePolling: true,
+    interval: Math.min(options.pollIntervalMs, 250)
   });
 
   const refreshActive = async (): Promise<void> => {
@@ -127,15 +343,24 @@ async function startClaudeJsonlWatcher(
   };
 
   const updateFile = async (path: string): Promise<void> => {
-    const inspected = await inspectPath(path, "claude");
-    if (!inspected) {
+    try {
+      const inspected = await inspectPath(path, storage.source);
+      if (!inspected) {
+        files.delete(path);
+        offsets.delete(path);
+        parsers.delete(path);
+        await refreshActive();
+        return;
+      }
+      files.set(path, inspected);
+      await refreshActive();
+    } catch (error) {
       files.delete(path);
       offsets.delete(path);
+      parsers.delete(path);
+      logger(`tokenwatch: skipped unreadable ${storage.source} file ${path}: ${errorMessage(error)}`);
       await refreshActive();
-      return;
     }
-    files.set(path, inspected);
-    await refreshActive();
   };
 
   const processFile = async (path: string): Promise<void> => {
@@ -144,23 +369,37 @@ async function startClaudeJsonlWatcher(
       return;
     }
 
-    const stat = await fs.stat(path);
+    let stat;
+    try {
+      stat = await fs.stat(path);
+    } catch (error) {
+      logger(`tokenwatch: skipped missing ${storage.source} file ${path}: ${errorMessage(error)}`);
+      return;
+    }
+
     const previousOffset = offsets.get(path) ?? 0;
     if (stat.size < previousOffset) {
       offsets.set(path, 0);
+      parsers.delete(path);
     }
     const start = offsets.get(path) ?? 0;
     if (stat.size === start) {
       return;
     }
 
-    for await (const line of readNewLines(path, start, stat.size)) {
-      const turn = parseClaudeLine(line);
-      if (turn) {
-        onTurn(turn);
+    try {
+      const parser = parsers.get(path) ?? parserFactory();
+      parsers.set(path, parser);
+      for await (const line of readNewLines(path, start, stat.size)) {
+        const turn = parser(line);
+        if (turn) {
+          onTurn(turn);
+        }
       }
+      offsets.set(path, stat.size);
+    } catch (error) {
+      logger(`tokenwatch: failed reading ${storage.source} file ${path}: ${errorMessage(error)}`);
     }
-    offsets.set(path, stat.size);
   };
 
   watcher.on("add", (path) => {
@@ -172,7 +411,11 @@ async function startClaudeJsonlWatcher(
   watcher.on("unlink", (path) => {
     files.delete(path);
     offsets.delete(path);
+    parsers.delete(path);
     void refreshActive();
+  });
+  watcher.on("error", (error) => {
+    logger(`tokenwatch: watcher error for ${storage.source} ${storage.detail}: ${errorMessage(error)}`);
   });
 
   return {
@@ -184,25 +427,45 @@ async function startClaudeJsonlWatcher(
 
 function startCodexSqlitePoller(
   onTurn: (turn: TokenTurn) => void,
-  options: WatcherOptions
+  codexDbPath: string,
+  options: WatcherOptions,
+  logger: (message: string) => void
 ): TokenWatcher {
   let db: SqliteDatabase | null = null;
   let lastRowId = 0;
+  let warned = false;
+
+  const closeDatabase = (): void => {
+    if (db?.open) {
+      db.close();
+    }
+    db = null;
+  };
 
   const openDatabase = (): SqliteDatabase | null => {
     if (db?.open) {
       return db;
     }
-    if (!existsSync(options.codexDbPath)) {
+    if (!existsSync(codexDbPath)) {
       return null;
     }
 
-    db = new Database(options.codexDbPath, {
-      readonly: true,
-      fileMustExist: true
-    });
-    lastRowId = getLatestCodexRowId(db);
-    return db;
+    try {
+      db = new Database(codexDbPath, {
+        readonly: true,
+        fileMustExist: true
+      });
+      lastRowId = getLatestCodexRowId(db);
+      warned = false;
+      return db;
+    } catch (error) {
+      if (!warned) {
+        logger(`tokenwatch: Codex SQLite unavailable at ${codexDbPath}; will keep detecting fallbacks (${errorMessage(error)})`);
+        warned = true;
+      }
+      closeDatabase();
+      return null;
+    }
   };
 
   const poll = (): void => {
@@ -211,10 +474,15 @@ function startCodexSqlitePoller(
       return;
     }
 
-    const result = readCodexTurnsSince(database, lastRowId);
-    lastRowId = result.lastRowId;
-    for (const turn of result.turns) {
-      onTurn(turn);
+    try {
+      const result = readCodexTurnsSince(database, lastRowId);
+      lastRowId = result.lastRowId;
+      for (const turn of result.turns) {
+        onTurn(turn);
+      }
+    } catch (error) {
+      logger(`tokenwatch: Codex SQLite read failed at ${codexDbPath}; falling back on next detection (${errorMessage(error)})`);
+      closeDatabase();
     }
   };
 
@@ -224,11 +492,20 @@ function startCodexSqlitePoller(
   return {
     close: async () => {
       clearInterval(timer);
-      if (db?.open) {
-        db.close();
-      }
+      closeDatabase();
     }
   };
+}
+
+function storageSignature(result: StorageResult): string {
+  if (result.status === "missing") {
+    return `${result.source}:missing:${result.detail}:${result.warnings.join("|")}`;
+  }
+  return `${result.source}:${result.format}:${result.path}:${result.paths.join("|")}:${result.model ?? ""}`;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 async function* readNewLines(

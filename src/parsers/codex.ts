@@ -3,9 +3,128 @@ import type { CodexLogRow, CodexResponseCompletedEvent, TokenTurn, TokenUsage } 
 const UNKNOWN_MODEL = "unknown";
 const CODEX_MESSAGE_PREFIX = "Received message ";
 const RESPONSE_COMPLETED_TYPE = "response.completed";
+const EVENT_MSG_TYPE = "event_msg";
+const USER_MESSAGE_TYPE = "user_message";
+const TOKEN_COUNT_TYPE = "token_count";
+const MIN_USER_PROMPT_LENGTH = 10;
+const BLOCKED_PROMPT_ROLES = new Set(["assistant", "developer", "system", "tool"]);
+const BLOCKED_PROMPT_SOURCES = new Set(["agent", "internal", "system", "tool"]);
+const INTERNAL_PROMPT_PATTERNS = [
+  /^<\|/,
+  /^<tool(?:_call|_result)?\b/i,
+  /^(?:function|tool)_call\b/i,
+  /^\{\s*"(?:cmd|function_call|tool_call|arguments)"\s*:/i,
+  /^You are OMX (?:Explore|Sparkshell)\b/i,
+  /^You are executing the `omx /i,
+  /Shell-only repository exploration contract/i,
+  /^# AGENTS\.md instructions for /
+];
+
+interface CodexJsonlParserOptions {
+  model?: string;
+  getModel?: () => string | undefined;
+}
+
+interface CodexJsonlParser {
+  parseLine(line: string): TokenTurn | null;
+}
+
+interface ActiveCodexPrompt {
+  updateKey: string;
+  promptText: string;
+  timestamp: Date;
+  timestampIso: string | null;
+  usage: TokenUsage;
+}
+
+interface CodexRolloutEntry {
+  type?: string;
+  timestamp?: string;
+  payload?: {
+    type?: string;
+    message?: unknown;
+    role?: unknown;
+    source?: unknown;
+    info?: {
+      last_token_usage?: {
+        input_tokens?: number;
+        output_tokens?: number;
+        cached_input_tokens?: number;
+        reasoning_output_tokens?: number;
+      };
+    };
+  };
+}
+
+let nextParserId = 0;
+const defaultJsonlParser = createCodexJsonlParser();
 
 export function parseCodexLogRow(row: CodexLogRow): TokenTurn | null {
   return parseCodexFeedbackLogBody(row.feedback_log_body);
+}
+
+export function createCodexJsonlParser(options: CodexJsonlParserOptions = {}): CodexJsonlParser {
+  const parserId = ++nextParserId;
+  let nextPromptId = 0;
+  let activePrompt: ActiveCodexPrompt | null = null;
+
+  return {
+    parseLine(line: string): TokenTurn | null {
+      const trimmed = line.trim();
+      if (trimmed.length === 0) {
+        return null;
+      }
+
+      const direct = trimmed.startsWith(CODEX_MESSAGE_PREFIX)
+        ? parseCodexFeedbackLogBody(trimmed)
+        : null;
+      if (direct) {
+        return direct;
+      }
+
+      let entry: unknown;
+      try {
+        entry = JSON.parse(trimmed) as unknown;
+      } catch {
+        return null;
+      }
+
+      const rolloutTurn = parseRolloutEntry(entry);
+      if (rolloutTurn.kind === "prompt") {
+        if (rolloutTurn.promptText) {
+          activePrompt = {
+            updateKey: `codex-rollout:${parserId}:${++nextPromptId}`,
+            promptText: rolloutTurn.promptText,
+            timestamp: parseTimestamp(rolloutTurn.timestampIso),
+            timestampIso: rolloutTurn.timestampIso,
+            usage: createEmptyUsage()
+          };
+        }
+        return null;
+      }
+      if (rolloutTurn.kind === "usage") {
+        if (!activePrompt) {
+          return null;
+        }
+        activePrompt = {
+          ...activePrompt,
+          usage: addUsage(activePrompt.usage, rolloutTurn.usage)
+        };
+        return turnFromActivePrompt(activePrompt, options);
+      }
+
+      if (activePrompt) {
+        return null;
+      }
+
+      const event = findResponseCompletedEvent(entry);
+      return event ? turnFromResponseCompletedEvent(event) : null;
+    }
+  };
+}
+
+export function parseCodexJsonlLine(line: string): TokenTurn | null {
+  return defaultJsonlParser.parseLine(line);
 }
 
 export function parseCodexFeedbackLogBody(body: string | null): TokenTurn | null {
@@ -25,6 +144,10 @@ export function parseCodexFeedbackLogBody(body: string | null): TokenTurn | null
     return null;
   }
 
+  return turnFromResponseCompletedEvent(event);
+}
+
+function turnFromResponseCompletedEvent(event: CodexResponseCompletedEvent): TokenTurn | null {
   if (event.type !== RESPONSE_COMPLETED_TYPE) {
     return null;
   }
@@ -39,13 +162,15 @@ export function parseCodexFeedbackLogBody(body: string | null): TokenTurn | null
     cachedInputTokens: toCount(
       usage.input_tokens_details?.cached_tokens ?? usage.cached_input_tokens
     ),
-    outputTokens: toCount(usage.output_tokens)
+    outputTokens: toCount(usage.output_tokens),
+    reasoningTokens: toCount(usage.reasoning_output_tokens)
   };
 
   if (
     normalizedUsage.inputTokens === 0 &&
     normalizedUsage.cachedInputTokens === 0 &&
-    normalizedUsage.outputTokens === 0
+    normalizedUsage.outputTokens === 0 &&
+    normalizedUsage.reasoningTokens === 0
   ) {
     return null;
   }
@@ -53,8 +178,156 @@ export function parseCodexFeedbackLogBody(body: string | null): TokenTurn | null
   return {
     source: "codex",
     model: event.response?.model ?? UNKNOWN_MODEL,
+    timestamp: new Date(),
+    timestampIso: null,
+    promptText: null,
     usage: normalizedUsage
   };
+}
+
+type RolloutParseResult =
+  | { kind: "none" }
+  | { kind: "prompt"; promptText: string | null; timestampIso: string | null }
+  | { kind: "usage"; usage: TokenUsage };
+
+function parseRolloutEntry(value: unknown): RolloutParseResult {
+  if (!value || typeof value !== "object") {
+    return { kind: "none" };
+  }
+
+  const entry = value as CodexRolloutEntry;
+  if (entry.type !== EVENT_MSG_TYPE) {
+    return { kind: "none" };
+  }
+
+  if (entry.payload?.type === USER_MESSAGE_TYPE) {
+    const promptText = extractUserPromptText(entry.payload);
+    return {
+      kind: "prompt",
+      promptText,
+      timestampIso: typeof entry.timestamp === "string" ? entry.timestamp : null
+    };
+  }
+
+  if (entry.payload?.type !== TOKEN_COUNT_TYPE) {
+    return { kind: "none" };
+  }
+
+  const usage = entry.payload.info?.last_token_usage;
+  if (!usage) {
+    return { kind: "none" };
+  }
+
+  const normalizedUsage: TokenUsage = {
+    inputTokens: toCount(usage.input_tokens),
+    cachedInputTokens: toCount(usage.cached_input_tokens),
+    outputTokens: toCount(usage.output_tokens),
+    reasoningTokens: toCount(usage.reasoning_output_tokens)
+  };
+
+  if (
+    normalizedUsage.inputTokens === 0 &&
+    normalizedUsage.cachedInputTokens === 0 &&
+    normalizedUsage.outputTokens === 0 &&
+    normalizedUsage.reasoningTokens === 0
+  ) {
+    return { kind: "none" };
+  }
+
+  return {
+    kind: "usage",
+    usage: normalizedUsage
+  };
+}
+
+function turnFromActivePrompt(
+  prompt: ActiveCodexPrompt,
+  options: CodexJsonlParserOptions
+): TokenTurn {
+  return {
+    updateKey: prompt.updateKey,
+    source: "codex",
+    model: options.getModel?.() ?? options.model ?? UNKNOWN_MODEL,
+    timestamp: prompt.timestamp,
+    timestampIso: prompt.timestampIso,
+    promptText: prompt.promptText,
+    usage: prompt.usage
+  };
+}
+
+function createEmptyUsage(): TokenUsage {
+  return {
+    inputTokens: 0,
+    cachedInputTokens: 0,
+    outputTokens: 0,
+    reasoningTokens: 0
+  };
+}
+
+function addUsage(current: TokenUsage, next: TokenUsage): TokenUsage {
+  return {
+    inputTokens: current.inputTokens + next.inputTokens,
+    cachedInputTokens: current.cachedInputTokens + next.cachedInputTokens,
+    outputTokens: current.outputTokens + next.outputTokens,
+    reasoningTokens: current.reasoningTokens + next.reasoningTokens
+  };
+}
+
+function extractUserPromptText(payload: NonNullable<CodexRolloutEntry["payload"]>): string | null {
+  const promptText = extractPromptText(payload.message);
+  if (!promptText) {
+    return null;
+  }
+
+  if (promptText.length <= MIN_USER_PROMPT_LENGTH) {
+    return null;
+  }
+
+  if (isBlockedPromptRole(payload.role) || isBlockedPromptSource(payload.source)) {
+    return null;
+  }
+
+  if (INTERNAL_PROMPT_PATTERNS.some((pattern) => pattern.test(promptText))) {
+    return null;
+  }
+
+  return promptText;
+}
+
+function extractPromptText(message: unknown): string | null {
+  if (typeof message !== "string") {
+    return null;
+  }
+  const trimmed = message.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function isBlockedPromptRole(value: unknown): boolean {
+  return typeof value === "string" && BLOCKED_PROMPT_ROLES.has(value.toLowerCase());
+}
+
+function isBlockedPromptSource(value: unknown): boolean {
+  return typeof value === "string" && BLOCKED_PROMPT_SOURCES.has(value.toLowerCase());
+}
+
+function findResponseCompletedEvent(value: unknown): CodexResponseCompletedEvent | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const candidate = value as CodexResponseCompletedEvent & { payload?: unknown; event?: unknown; message?: unknown };
+  if (candidate.type === RESPONSE_COMPLETED_TYPE && candidate.response?.usage) {
+    return candidate;
+  }
+
+  for (const nested of [candidate.payload, candidate.event, candidate.message]) {
+    const event = findResponseCompletedEvent(nested);
+    if (event) {
+      return event;
+    }
+  }
+
+  return null;
 }
 
 function extractJsonPayload(body: string): string | null {
@@ -68,6 +341,16 @@ function extractJsonPayload(body: string): string | null {
   }
 
   return null;
+}
+
+function parseTimestamp(value: unknown): Date {
+  if (typeof value === "string") {
+    const date = new Date(value);
+    if (!Number.isNaN(date.getTime())) {
+      return date;
+    }
+  }
+  return new Date();
 }
 
 function toCount(value: unknown): number {
