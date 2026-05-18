@@ -8,13 +8,15 @@ export interface TokenwatchConfig {
   weeklyBudgetUsd: number | null;
   alertAt: number;
   topicRules: TopicRuleConfig[];
+  redactPromptText: boolean;
 }
 
 export const DEFAULT_CONFIG: TokenwatchConfig = {
   dailyBudgetUsd: null,
   weeklyBudgetUsd: null,
   alertAt: 0.8,
-  topicRules: []
+  topicRules: [],
+  redactPromptText: false
 };
 
 export function getTokenwatchDir(): string {
@@ -33,7 +35,8 @@ export function loadConfig(baseDir = getTokenwatchDir()): TokenwatchConfig {
       dailyBudgetUsd: nullablePositiveNumber(parsed.dailyBudgetUsd),
       weeklyBudgetUsd: nullablePositiveNumber(parsed.weeklyBudgetUsd),
       alertAt: validAlertAt(parsed.alertAt),
-      topicRules: validTopicRules(parsed.topicRules)
+      topicRules: validTopicRules(parsed.topicRules),
+      redactPromptText: parsed.redactPromptText === true
     };
   } catch {
     return createDefaultConfig();

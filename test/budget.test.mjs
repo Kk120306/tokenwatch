@@ -19,7 +19,8 @@ test("budget config loads defaults and validates configured values", async () =>
       dailyBudgetUsd: null,
       weeklyBudgetUsd: null,
       alertAt: 0.8,
-      topicRules: []
+      topicRules: [],
+      redactPromptText: false
     });
 
     await mkdir(dir, { recursive: true });
@@ -27,6 +28,7 @@ test("budget config loads defaults and validates configured values", async () =>
       dailyBudgetUsd: 5,
       weeklyBudgetUsd: 25,
       alertAt: 0.75,
+      redactPromptText: true,
       topicRules: [
         { topic: "billing", keywords: ["invoice", "stripe", "refund"] },
         { topic: "", keywords: ["ignored"] },
@@ -40,7 +42,8 @@ test("budget config loads defaults and validates configured values", async () =>
       alertAt: 0.75,
       topicRules: [
         { topic: "billing", keywords: ["invoice", "stripe", "refund"] }
-      ]
+      ],
+      redactPromptText: true
     });
   } finally {
     await rm(dir, { recursive: true, force: true });

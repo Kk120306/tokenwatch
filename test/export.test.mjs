@@ -427,6 +427,76 @@ test("export runner can target an explicit session and write JSON only", async (
   }
 });
 
+test("export runner redacts prompt text while preserving topic and totals", async () => {
+  const originalHome = process.env.HOME;
+  const originalCodexHome = process.env.CODEX_HOME;
+  const originalClaudeHome = process.env.CLAUDE_HOME;
+  const home = await makeTempDir();
+  const codexHome = join(home, "codex");
+  const claudeHome = join(home, "claude");
+  const outDir = join(home, "reports");
+  const rolloutPath = join(codexHome, "sessions", "rollout.jsonl");
+  const sensitivePrompt = "build a Stripe refund dashboard for customer@example.com";
+  const logs = [];
+  const originalLog = console.log;
+
+  try {
+    process.env.HOME = home;
+    process.env.CODEX_HOME = codexHome;
+    process.env.CLAUDE_HOME = claudeHome;
+    await mkdir(join(codexHome, "sessions"), { recursive: true });
+    await mkdir(claudeHome, { recursive: true });
+    await writeFile(rolloutPath, [
+      JSON.stringify({
+        timestamp: "2026-05-18T09:00:00.000Z",
+        type: "event_msg",
+        payload: {
+          type: "user_message",
+          message: sensitivePrompt
+        }
+      }),
+      JSON.stringify({
+        type: "event_msg",
+        payload: {
+          type: "token_count",
+          info: {
+            last_token_usage: {
+              input_tokens: 1200,
+              cached_input_tokens: 600,
+              output_tokens: 80,
+              reasoning_output_tokens: 10
+            }
+          }
+        }
+      })
+    ].join("\n"), "utf8");
+
+    console.log = (message) => {
+      logs.push(String(message));
+    };
+
+    await runExport(["--json", "--redact-prompts", "--session", rolloutPath, "--session-source", "codex", "--out", outDir]);
+
+    assert.deepEqual(logs, [
+      "exported 1 prompts",
+      `  → ${join(outDir, "tokenwatch-2026-05-18.json")}`
+    ]);
+    const jsonText = await readFile(join(outDir, "tokenwatch-2026-05-18.json"), "utf8");
+    const json = JSON.parse(jsonText);
+    assert.equal(json.turns[0].promptText, "[redacted]");
+    assert.equal(json.turns[0].topic, "building");
+    assert.equal(json.summary.totals.inputTokens, 1200);
+    assert.doesNotMatch(jsonText, /customer@example\.com/);
+    assert.doesNotMatch(jsonText, /Stripe refund dashboard/);
+  } finally {
+    console.log = originalLog;
+    restoreEnv("HOME", originalHome);
+    restoreEnv("CODEX_HOME", originalCodexHome);
+    restoreEnv("CLAUDE_HOME", originalClaudeHome);
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
 function parsedTurn(overrides) {
   const timestamp = new Date(overrides.timestampIso);
   const usage = {

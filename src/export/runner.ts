@@ -6,6 +6,7 @@ import Database from "better-sqlite3";
 import { loadConfig } from "../config.js";
 import { detectClaudeStorage, detectCodexStorage } from "../detect.js";
 import { loadPricing } from "../pricing.js";
+import { redactParsedTurnPrompt } from "../privacy.js";
 import { createClaudeParser } from "../parsers/claude.js";
 import { createCodexJsonlParser, createCodexSqliteParser } from "../parsers/codex.js";
 import { createParsedTurn } from "../turns.js";
@@ -26,6 +27,7 @@ interface ExportArgs {
   outDir: string;
   sessionPath?: string;
   sessionSource?: SessionSource;
+  redactPrompts: boolean;
 }
 
 interface ExportSession {
@@ -37,7 +39,12 @@ export async function runExport(argv: readonly string[]): Promise<void> {
   const args = parseExportArgs(argv);
   const pricing = loadPricing();
   const config = loadConfig();
-  const turns = await readCurrentSessionTurns(pricing, args, config.topicRules);
+  const turns = await readCurrentSessionTurns(
+    pricing,
+    args,
+    config.topicRules,
+    args.redactPrompts || config.redactPromptText
+  );
   if (turns.length === 0) {
     console.log("no active session found — start a prompt first");
     return;
@@ -78,6 +85,7 @@ function parseExportArgs(argv: readonly string[]): ExportArgs {
   let outDir = DEFAULT_EXPORT_DIR;
   let sessionPath: string | undefined;
   let sessionSource: SessionSource | undefined;
+  let redactPrompts = false;
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -91,6 +99,10 @@ function parseExportArgs(argv: readonly string[]): ExportArgs {
     }
     if (arg === "--json") {
       json = true;
+      continue;
+    }
+    if (arg === "--redact-prompts") {
+      redactPrompts = true;
       continue;
     }
     if (arg === "--out") {
@@ -134,7 +146,8 @@ function parseExportArgs(argv: readonly string[]): ExportArgs {
     json,
     outDir: resolve(outDir),
     sessionPath,
-    sessionSource
+    sessionSource,
+    redactPrompts
   };
 }
 
@@ -148,7 +161,8 @@ function parseSessionSource(value: string): SessionSource {
 async function readCurrentSessionTurns(
   pricing: PricingTable,
   options: Pick<ExportArgs, "sessionPath" | "sessionSource"> = {},
-  topicRules: readonly TopicRuleConfig[] = []
+  topicRules: readonly TopicRuleConfig[] = [],
+  redactPrompts = false
 ): Promise<ParsedTurn[]> {
   const detected = detectExportStorage(options);
   const session = await findPreviousSession(detected);
@@ -167,10 +181,16 @@ async function readCurrentSessionTurns(
     }
     const existingIndex = turn.updateKey ? byUpdateKey.get(turn.updateKey) : undefined;
     if (existingIndex !== undefined) {
-      parsed[existingIndex] = createParsedTurn(turn, parsed[existingIndex].id, pricing, undefined, topicRules);
+      parsed[existingIndex] = applyPrivacy(
+        createParsedTurn(turn, parsed[existingIndex].id, pricing, undefined, topicRules),
+        redactPrompts
+      );
       continue;
     }
-    const parsedTurn = createParsedTurn(turn, ++nextId, pricing, undefined, topicRules);
+    const parsedTurn = applyPrivacy(
+      createParsedTurn(turn, ++nextId, pricing, undefined, topicRules),
+      redactPrompts
+    );
     if (turn.updateKey) {
       byUpdateKey.set(turn.updateKey, parsed.length);
     }
@@ -178,6 +198,10 @@ async function readCurrentSessionTurns(
   }
 
   return parsed.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+}
+
+function applyPrivacy(turn: ParsedTurn, redactPrompts: boolean): ParsedTurn {
+  return redactPrompts ? redactParsedTurnPrompt(turn) : turn;
 }
 
 function detectExportStorage(options: Pick<ExportArgs, "sessionPath" | "sessionSource">): StorageResult[] {

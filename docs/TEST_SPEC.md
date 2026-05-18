@@ -13,7 +13,7 @@
 
 ## Configuration Tests
 
-- `~/.tokenwatch/config.json` loads budget values, alert threshold, and valid configured topic rules.
+- `~/.tokenwatch/config.json` loads budget values, alert threshold, prompt redaction preference, and valid configured topic rules.
 - Invalid configured topic rules are ignored without breaking default configuration loading.
 
 ## Pricing Tests
@@ -54,3 +54,4 @@
 - Markdown and CSV reports keep prompt-level rows, grouped totals, and summary rows.
 - JSON reports expose stable `schemaVersion: 1` summaries, model/topic groups, per-prompt token, cache, context, and goal fields.
 - Export mode can target an explicit `--session` path instead of always selecting the newest detected session.
+- Export redaction replaces prompt text with `[redacted]` while preserving topic classification and token totals.

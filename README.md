@@ -67,6 +67,10 @@ tokenwatch --session "$HOME/.codex/sessions/2026/05/18/rollout.jsonl" --session-
 # Tag every prompt in the current run
 tokenwatch --topic documentation
 
+# Hide prompt text in the dashboard or generated reports
+tokenwatch --redact-prompts
+tokenwatch export --json --redact-prompts
+
 # Track local daily and weekly budgets
 tokenwatch --daily-budget 5 --weekly-budget 25 --alert-at 0.8
 tokenwatch --reset-budget
@@ -107,6 +111,7 @@ tokenwatch export --csv
 - Context Pressure: Estimate context-window usage for known models.
 - Budget Tracking: Persist daily and weekly spend under `~/.tokenwatch`.
 - Topic Grouping: Auto-classify prompt topics, add local keyword rules, or force a manual topic with `--topic`.
+- Prompt Privacy: Replace captured prompt text with `[redacted]` in the dashboard and reports.
 - Model Recommendations: Compare observed model costs by topic after enough prompts are available.
 - Goal Metadata: Show Codex goal information when present in local Codex state.
 - Report Export: Generate Markdown, CSV, and JSON reports for detected or explicit sessions.
@@ -133,6 +138,7 @@ tokenwatch export [export-options]
 | `--claude-glob <glob>`     | Claude Code JSONL glob. Defaults to auto-detection from `$CLAUDE_HOME` or `~/.claude`.   |
 | `--codex-db <path>`        | Codex SQLite database path. Defaults to auto-detection from `$CODEX_HOME` or `~/.codex`. |
 | `--topic <name>`           | Manually tag every parsed prompt in the session.                                         |
+| `--redact-prompts`         | Replace captured prompt text with `[redacted]` in the TUI and exports.                   |
 | `--daily-budget <amount>`  | Daily budget in USD. Overrides `~/.tokenwatch/config.json`.                              |
 | `--weekly-budget <amount>` | Weekly budget in USD. Overrides `~/.tokenwatch/config.json`.                             |
 | `--alert-at <pct>`         | Budget alert threshold from `0.0` to `1.0`. Default: `0.8`.                              |
@@ -149,6 +155,7 @@ tokenwatch export [export-options]
 | `--md`                      | Include the Markdown report.                                                           |
 | `--csv`                     | Include the CSV report.                                                                |
 | `--json`                    | Include a structured JSON report with summary, group, prompt, cache, context, and goal fields. |
+| `--redact-prompts`          | Replace captured prompt text with `[redacted]` in generated reports.                   |
 | `--session <path>`          | Export a specific JSONL, log, or SQLite session instead of the newest detected session. |
 | `--session-source <source>` | Source for ambiguous export session JSONL paths: `claude` or `codex`.                  |
 | `--out <dir>`               | Write reports to this directory. Default: `./tokenwatch-exports`.                      |
@@ -172,6 +179,7 @@ Optional configuration:
   "dailyBudgetUsd": 5,
   "weeklyBudgetUsd": 25,
   "alertAt": 0.8,
+  "redactPromptText": false,
   "topicRules": [
     {
       "topic": "billing",
@@ -185,7 +193,7 @@ Optional configuration:
 }
 ```
 
-Save that as `~/.tokenwatch/config.json`. Custom `topicRules` are checked before the built-in classifier. CLI budget flags override budget values for the current run, and `--topic <name>` overrides all automatic topic classification for that session.
+Save that as `~/.tokenwatch/config.json`. Custom `topicRules` are checked before the built-in classifier. Set `redactPromptText` to `true` or pass `--redact-prompts` to keep prompt text out of tokenwatch's TUI state and generated reports. CLI budget flags override budget values for the current run, and `--topic <name>` overrides all automatic topic classification for that session.
 
 ## Reports
 
@@ -233,8 +241,9 @@ tokenwatch is local-first:
 - Writes only tokenwatch budget state and optional export files.
 - Does not send prompts, paths, token counts, or cost data over the network.
 - Does not modify Claude Code or Codex CLI storage.
+- Can replace prompt text with `[redacted]` in tokenwatch-rendered state and reports with `--redact-prompts` or `redactPromptText`.
 
-Avoid committing private session logs, generated reports with prompt text, files from `~/.claude`, files from `~/.codex`, or files from `~/.tokenwatch`.
+Redaction does not edit source Claude Code or Codex CLI logs. Avoid committing private session logs, generated reports with prompt text, files from `~/.claude`, files from `~/.codex`, or files from `~/.tokenwatch`.
 
 ## Documentation
 

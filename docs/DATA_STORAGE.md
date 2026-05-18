@@ -22,6 +22,15 @@ text as best-effort: usage rows are counted, and prompt text is attached only
 when a preceding user-message telemetry row is available in the same ordered log
 stream.
 
+## Privacy Controls
+
+tokenwatch never edits Claude Code or Codex CLI source logs. To keep prompt text
+out of tokenwatch-rendered views and generated reports, run with
+`--redact-prompts` or set `"redactPromptText": true` in
+`~/.tokenwatch/config.json`. Redaction happens after topic classification and
+token-cost calculation, so prompt text is replaced with `[redacted]` while token
+totals, costs, cache metrics, topics, and goal metadata remain available.
+
 ## Claude Code
 
 Observed path shape:
