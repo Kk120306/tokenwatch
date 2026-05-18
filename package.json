@@ -26,7 +26,8 @@
   "files": [
     "dist",
     "pricing.json",
-    "README.md"
+    "README.md",
+    "Preview.png"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
