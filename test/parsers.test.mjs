@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { scoreCacheEfficiency } from "../dist/cache-score.js";
 import { classifyPromptTopic, resolveTurnTopic } from "../dist/classifier.js";
 import { createClaudeParser } from "../dist/parsers/claude.js";
 import { createCodexJsonlParser, parseCodexFeedbackLogBody, parseCodexJsonlLine, parseCodexLogRow } from "../dist/parsers/codex.js";
@@ -355,6 +356,33 @@ test("topic classification and manual override populate ParsedTurn topics", () =
   assert.equal(parsed.topic, "research");
   assert.equal(parsed.topicConfidence, "manual");
   assert.equal(parsed.updateKey, "codex-rollout:1:1");
+  assert.equal(parsed.cacheGrade, "F");
+  assert.equal(parsed.cacheHitRate, 0.1);
+  assert.equal(parsed.cacheSavingsUsd, 0);
+});
+
+test("cache efficiency scoring grades thresholds and savings", () => {
+  const pricing = {
+    "gpt-5.5": {
+      inputPerMillion: 5,
+      cachedInputPerMillion: 0.5,
+      outputPerMillion: 30
+    }
+  };
+
+  const score = scoreCacheEfficiency({
+    model: "gpt-5.5",
+    inputTokens: 1000,
+    cachedTokens: 800
+  }, pricing);
+  assert.equal(score.cacheGrade, "A");
+  assert.equal(score.cacheHitRate, 0.8);
+  assert.ok(Math.abs(score.cacheSavingsUsd - 0.0036) < 0.000001);
+  assert.equal(scoreCacheEfficiency({ model: "gpt-5.5", inputTokens: 1000, cachedTokens: 600 }, pricing).cacheGrade, "B");
+  assert.equal(scoreCacheEfficiency({ model: "gpt-5.5", inputTokens: 1000, cachedTokens: 400 }, pricing).cacheGrade, "C");
+  assert.equal(scoreCacheEfficiency({ model: "gpt-5.5", inputTokens: 1000, cachedTokens: 200 }, pricing).cacheGrade, "D");
+  assert.equal(scoreCacheEfficiency({ model: "gpt-5.5", inputTokens: 1000, cachedTokens: 199 }, pricing).cacheGrade, "F");
+  assert.equal(scoreCacheEfficiency({ model: "unknown", inputTokens: 1000, cachedTokens: 900 }, pricing).cacheSavingsUsd, 0);
 });
 
 test("Codex parser ignores malformed and unrelated SQLite log rows", () => {

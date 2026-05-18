@@ -41,6 +41,7 @@ export interface SessionTotal {
 }
 
 export type TopicConfidence = "auto" | "manual";
+export type CacheGrade = "A" | "B" | "C" | "D" | "F";
 
 export interface ParsedTurn {
   updateKey?: string;
@@ -52,6 +53,9 @@ export interface ParsedTurn {
   promptText: string | null;
   inputTokens: number;
   cachedTokens: number;
+  cacheGrade: CacheGrade;
+  cacheHitRate: number;
+  cacheSavingsUsd: number;
   outputTokens: number;
   reasoningTokens: number;
   costUsd: number;

@@ -1,5 +1,6 @@
 import { Box, Text, useApp, useInput, useStdin, useStdout } from "ink";
 import { useEffect, useMemo, useState } from "react";
+import { cacheGradeSortValue, describeCacheGrade } from "../cache-score.js";
 import type { ParsedTurn, PricingTable, StorageDetectionSummary, StorageResult } from "../types.js";
 import {
   filterTurns,
@@ -13,6 +14,7 @@ import {
 
 type ActiveView = "prompts" | "models" | "stats";
 type FilterMode = "models" | "topics";
+type PromptSortMode = "time" | "cacheGrade";
 
 export interface AppState {
   turns: ParsedTurn[];
@@ -43,7 +45,7 @@ interface FilterOverlayState {
 
 const BAR_WIDTH = 44;
 const STALE_AFTER_MS = 30_000;
-const SHORTCUTS = "[1] Prompts  [2] Models  [3] Stats  [f] Models  [t] Topics  [c] Toggle tokens  [q] Quit";
+const SHORTCUTS = "[1] Prompts  [2] Models  [3] Stats  [g] Cache sort  [f] Models  [t] Topics  [c] Toggle tokens  [q] Quit";
 
 export default function App({
   turns,
@@ -70,6 +72,7 @@ export default function App({
   const [showTokens, setShowTokens] = useState(false);
   const [isLive, setIsLive] = useState(true);
   const [overlay, setOverlay] = useState<FilterOverlayState | null>(null);
+  const [promptSortMode, setPromptSortMode] = useState<PromptSortMode>("time");
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -91,10 +94,14 @@ export default function App({
     () => filterTurns(turns, filterModels, filterTopics),
     [turns, filterModels, filterTopics]
   );
+  const visibleTurns = useMemo(
+    () => sortPromptTurns(filteredTurns, promptSortMode),
+    [filteredTurns, promptSortMode]
+  );
 
   useEffect(() => {
-    setSelectedTurnIndex((current) => clamp(current, 0, Math.max(0, filteredTurns.length - 1)));
-  }, [filteredTurns.length]);
+    setSelectedTurnIndex((current) => clamp(current, 0, Math.max(0, visibleTurns.length - 1)));
+  }, [visibleTurns.length]);
 
   useInput((input, key) => {
     if (overlay) {
@@ -123,6 +130,11 @@ export default function App({
       setShowTokens((current) => !current);
       return;
     }
+    if (input === "g") {
+      setPromptSortMode((current) => current === "cacheGrade" ? "time" : "cacheGrade");
+      setActiveView("prompts");
+      return;
+    }
     if (input === "f") {
       setOverlay({ mode: "models", cursor: 0, selected: filterModels });
       return;
@@ -132,22 +144,22 @@ export default function App({
       return;
     }
     if (activeView === "prompts" && key.upArrow) {
-      setSelectedTurnIndex((current) => clamp(current - 1, 0, Math.max(0, filteredTurns.length - 1)));
+      setSelectedTurnIndex((current) => clamp(current - 1, 0, Math.max(0, visibleTurns.length - 1)));
       return;
     }
     if (activeView === "prompts" && key.downArrow) {
-      setSelectedTurnIndex((current) => clamp(current + 1, 0, Math.max(0, filteredTurns.length - 1)));
+      setSelectedTurnIndex((current) => clamp(current + 1, 0, Math.max(0, visibleTurns.length - 1)));
       return;
     }
     if (activeView === "prompts" && key.return) {
-      const selected = filteredTurns[selectedTurnIndex];
+      const selected = visibleTurns[selectedTurnIndex];
       setExpandedTurnId((current) => current === selected?.id ? null : selected?.id ?? null);
     }
   }, {
     isActive: inputEnabled ?? (isRawModeSupported && typeof stdin.setRawMode === "function")
   });
 
-  const maxTurnCost = Math.max(...filteredTurns.map((turn) => turn.costUsd), 0);
+  const maxTurnCost = Math.max(...visibleTurns.map((turn) => turn.costUsd), 0);
   const contentHeight = Math.max(8, height - 5);
   const stale = lastTurnReceivedAt === null || Date.now() - lastTurnReceivedAt > STALE_AFTER_MS;
   const liveColor = stale ? "gray" : "green";
@@ -167,7 +179,7 @@ export default function App({
           <FilterOverlay overlay={overlay} availableModels={availableModels} availableTopics={availableTopics} />
         ) : activeView === "prompts" ? (
           <PromptsView
-            turns={filteredTurns}
+            turns={visibleTurns}
             maxTurnCost={maxTurnCost}
             expandedTurnId={expandedTurnId}
             selectedTurnIndex={selectedTurnIndex}
@@ -293,10 +305,12 @@ function PromptRow({
 }): React.JSX.Element {
   const cost = getCostLabel(turn.costUsd);
   const model = normalizeModel(turn.model);
+  const cache = getCacheGradeLabel(turn.cacheGrade);
   return (
     <Box flexDirection="column">
       <Text color={selected ? "cyan" : undefined}>
         {selected ? ">" : " "} #{displayIndex.toString().padEnd(4)} {model.padEnd(22)} {(turn.topic ?? "untagged").padEnd(18)}{" "}
+        <Text color={cache.color}>{turn.cacheGrade}</Text>{" "}
         <Text color={cost.color} dimColor={cost.dim}>{cost.label.padEnd(14)}</Text>
         {showTokens ? formatTokenLine(turn) : `~${formatUsd(turn.costUsd)}`}
       </Text>
@@ -304,6 +318,7 @@ function PromptRow({
       {expanded ? (
         <>
           <Text wrap="truncate-end">      "{turn.promptText ?? "prompt text unavailable"}"</Text>
+          <Text>      Cache: <Text color={cache.color}>{turn.cacheGrade}</Text> — {cache.description}, saving ~{formatUsd(turn.cacheSavingsUsd)} this prompt</Text>
           <Text dimColor>      {formatTokenLine(turn)}</Text>
           {turn.goal ? (
             <Text dimColor>      goal {turn.goal.status} · {formatCount(turn.goal.tokensUsed)} used · {turn.goal.objective || turn.goal.goalId}</Text>
@@ -388,6 +403,14 @@ function StatsView({
       {stats.topTopics.map((topic) => (
         <Text key={topic.topic}>  {topic.topic.padEnd(16)} {`${topic.promptCount} prompts`.padEnd(12)} ~{formatUsd(topic.totalCostUsd)}</Text>
       ))}
+      <Text dimColor>  ─────────────────────────────────────────</Text>
+      <Text bold>  Cache Efficiency</Text>
+      <Text>  Overall grade        <Text color={getCacheGradeLabel(stats.cacheEfficiency.overallGrade).color}>{stats.cacheEfficiency.overallGrade}</Text></Text>
+      <Text>  Average hit rate     {formatPercent(stats.cacheEfficiency.averageHitRate)}</Text>
+      <Text>  Total saved          ~{formatUsd(stats.cacheEfficiency.totalSavingsUsd)} across {stats.totalPrompts} prompts</Text>
+      <Text>  Best session topic   {formatCacheTopic(stats.cacheEfficiency.bestTopic)}</Text>
+      <Text>  Worst topic          {formatCacheTopic(stats.cacheEfficiency.worstTopic)}</Text>
+      <Text wrap="wrap">  Tip: {stats.cacheEfficiency.tip}</Text>
     </Box>
   );
 }
@@ -451,6 +474,40 @@ function getCostLabel(costUsd: number): { label: string; color: string | undefin
     return { label: "expensive", color: "#ffa500", dim: false };
   }
   return { label: "very expensive", color: "red", dim: false };
+}
+
+function getCacheGradeLabel(grade: ParsedTurn["cacheGrade"]): { color: string; description: string } {
+  const color = grade === "A" ? "green"
+    : grade === "B" ? "cyan"
+      : grade === "C" ? "yellow"
+        : grade === "D" ? "#ffa500"
+          : "red";
+  return {
+    color,
+    description: describeCacheGrade(grade).replace(/^[^—]+—\s*/, "").toLowerCase()
+  };
+}
+
+function formatCacheTopic(topic: {
+  topic: string;
+  cacheHitRate: number;
+  cacheGrade: ParsedTurn["cacheGrade"];
+} | null): string {
+  if (!topic) {
+    return "none";
+  }
+  return `${topic.topic}   ${topic.cacheGrade}  (${formatPercent(topic.cacheHitRate)} hit rate)`;
+}
+
+function sortPromptTurns(turns: readonly ParsedTurn[], sortMode: PromptSortMode): ParsedTurn[] {
+  if (sortMode === "time") {
+    return [...turns];
+  }
+  return [...turns].sort((a, b) => (
+    cacheGradeSortValue(a.cacheGrade) - cacheGradeSortValue(b.cacheGrade) ||
+    a.cacheHitRate - b.cacheHitRate ||
+    a.timestamp.getTime() - b.timestamp.getTime()
+  ));
 }
 
 function costBar(value: number, maxValue: number): string {

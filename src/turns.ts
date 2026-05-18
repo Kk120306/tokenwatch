@@ -1,3 +1,4 @@
+import { scoreCacheEfficiency } from "./cache-score.js";
 import { resolveTurnTopic } from "./classifier.js";
 import { estimateCostUsd } from "./pricing.js";
 import type { ParsedTurn, PricingTable, TokenTurn } from "./types.js";
@@ -10,6 +11,11 @@ export function createParsedTurn(
 ): ParsedTurn {
   const topic = resolveTurnTopic(turn.promptText, manualTopic);
   const model = normalizeModel(turn.model);
+  const cacheScore = scoreCacheEfficiency({
+    model,
+    inputTokens: turn.usage.inputTokens,
+    cachedTokens: turn.usage.cachedInputTokens
+  }, pricing);
   return {
     updateKey: turn.updateKey,
     id,
@@ -20,6 +26,9 @@ export function createParsedTurn(
     promptText: turn.promptText,
     inputTokens: turn.usage.inputTokens,
     cachedTokens: turn.usage.cachedInputTokens,
+    cacheGrade: cacheScore.cacheGrade,
+    cacheHitRate: cacheScore.cacheHitRate,
+    cacheSavingsUsd: cacheScore.cacheSavingsUsd,
     outputTokens: turn.usage.outputTokens,
     reasoningTokens: turn.usage.reasoningTokens,
     costUsd: estimateCostUsd(model, turn.usage, pricing),

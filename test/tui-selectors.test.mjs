@@ -123,6 +123,28 @@ test("TUI stats include cache savings and per-topic breakdowns", () => {
   assert.equal(stats.topTopics.length, 3);
   assert.ok(stats.cacheSavingsUsd > 0);
   assert.equal(stats.cacheHitRate, 1600 / 4000);
+  assert.equal(stats.cacheEfficiency.overallGrade, "C");
+  assert.equal(stats.cacheEfficiency.bestTopic.topic, "debugging");
+  assert.equal(stats.cacheEfficiency.worstTopic.topic, "refactoring");
+});
+
+test("TUI cache efficiency tips change for low and high cache sessions", () => {
+  const lowCache = summarizeStats([
+    { ...turns[0], cachedTokens: 0 },
+    { ...turns[1], cachedTokens: 100 },
+    { ...turns[2], cachedTokens: 0 }
+  ], {});
+  const highCache = summarizeStats([
+    { ...turns[0], cachedTokens: 900 },
+    { ...turns[1], cachedTokens: 1800 },
+    { ...turns[2], cachedTokens: 900 }
+  ], {});
+
+  assert.equal(lowCache.cacheEfficiency.overallGrade, "F");
+  assert.match(lowCache.cacheEfficiency.tip, /continuing sessions/);
+  assert.equal(highCache.cacheEfficiency.overallGrade, "A");
+  assert.match(highCache.cacheEfficiency.tip, /Great cache usage/);
+  assert.notEqual(lowCache.cacheEfficiency.tip, highCache.cacheEfficiency.tip);
 });
 
 test("TUI stats summarize goal-mode metadata from parsed turns", () => {

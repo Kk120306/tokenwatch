@@ -1,3 +1,4 @@
+import { gradeCacheHitRate } from "../cache-score.js";
 import { estimateCacheSavingsUsd } from "../pricing.js";
 import type { GoalMetadata, ParsedTurn, PricingTable } from "../types.js";
 
@@ -19,6 +20,13 @@ export interface TopicSummary {
   avgCostUsd: number;
 }
 
+export interface CacheTopicSummary {
+  topic: string;
+  promptCount: number;
+  cacheHitRate: number;
+  cacheGrade: ParsedTurn["cacheGrade"];
+}
+
 export interface Recommendation {
   text: string;
 }
@@ -34,6 +42,14 @@ export interface StatsSummary {
   mostExpensiveTopic: TopicSummary | null;
   cheapestTopic: TopicSummary | null;
   topTopics: TopicSummary[];
+  cacheEfficiency: {
+    overallGrade: ParsedTurn["cacheGrade"];
+    averageHitRate: number;
+    totalSavingsUsd: number;
+    bestTopic: CacheTopicSummary | null;
+    worstTopic: CacheTopicSummary | null;
+    tip: string;
+  };
   goal: (GoalMetadata & { promptCount: number }) | null;
 }
 
@@ -132,16 +148,18 @@ export function summarizeStats(
   const inputTokens = turns.reduce((total, turn) => total + turn.inputTokens, 0);
   const cachedTokens = turns.reduce((total, turn) => total + turn.cachedTokens, 0);
   const cacheSavingsUsd = turns.reduce(
-    (total, turn) => total + estimateCacheSavingsUsd(normalizeModel(turn.model), turn.cachedTokens, pricing),
+    (total, turn) => total + (turn.cacheSavingsUsd ?? estimateCacheSavingsUsd(normalizeModel(turn.model), turn.cachedTokens, pricing)),
     0
   );
   const sortedByTime = [...turns].sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime() || sourceSortKey(a.source) - sourceSortKey(b.source));
   const firstTurn = sortedByTime[0] ?? null;
   const lastTurn = sortedByTime.at(-1) ?? null;
   const topics = summarizeTopics(turns);
+  const cacheTopics = summarizeCacheTopics(turns);
   const mostExpensiveTurn = [...turns].sort((a, b) => b.costUsd - a.costUsd)[0] ?? null;
   const topicsByAverage = [...topics].sort((a, b) => b.avgCostUsd - a.avgCostUsd);
   const goal = summarizeGoal(turns);
+  const cacheHitRate = inputTokens === 0 ? 0 : cachedTokens / inputTokens;
 
   return {
     totalCostUsd,
@@ -151,11 +169,19 @@ export function summarizeStats(
       : 0,
     avgCostUsd: totalPrompts === 0 ? 0 : totalCostUsd / totalPrompts,
     mostExpensiveTurn,
-    cacheHitRate: inputTokens === 0 ? 0 : cachedTokens / inputTokens,
+    cacheHitRate,
     cacheSavingsUsd,
     mostExpensiveTopic: topicsByAverage[0] ?? null,
     cheapestTopic: topicsByAverage.at(-1) ?? null,
     topTopics: topics.slice(0, 5),
+    cacheEfficiency: {
+      overallGrade: gradeCacheHitRate(cacheHitRate),
+      averageHitRate: cacheHitRate,
+      totalSavingsUsd: cacheSavingsUsd,
+      bestTopic: cacheTopics[0] ?? null,
+      worstTopic: cacheTopics.at(-1) ?? null,
+      tip: createCacheTip(cacheHitRate, cacheTopics)
+    },
     goal
   };
 }
@@ -204,4 +230,45 @@ function summarizeGoal(turns: readonly ParsedTurn[]): (GoalMetadata & { promptCo
     ...latestGoal,
     promptCount: goalTurns.filter((turn) => turn.goal?.goalId === latestGoal.goalId).length
   };
+}
+
+function summarizeCacheTopics(turns: readonly ParsedTurn[]): CacheTopicSummary[] {
+  const grouped = new Map<string, { promptCount: number; inputTokens: number; cachedTokens: number }>();
+  for (const turn of turns) {
+    const topic = turn.topic ?? "untagged";
+    const current = grouped.get(topic) ?? { promptCount: 0, inputTokens: 0, cachedTokens: 0 };
+    current.promptCount += 1;
+    current.inputTokens += turn.inputTokens;
+    current.cachedTokens += turn.cachedTokens;
+    grouped.set(topic, current);
+  }
+
+  return [...grouped.entries()]
+    .map(([topic, summary]) => {
+      const cacheHitRate = summary.inputTokens === 0 ? 0 : summary.cachedTokens / summary.inputTokens;
+      return {
+        topic,
+        promptCount: summary.promptCount,
+        cacheHitRate,
+        cacheGrade: gradeCacheHitRate(cacheHitRate)
+      };
+    })
+    .sort((a, b) => b.cacheHitRate - a.cacheHitRate || b.promptCount - a.promptCount || a.topic.localeCompare(b.topic));
+}
+
+function createCacheTip(overallHitRate: number, topics: readonly CacheTopicSummary[]): string {
+  if (overallHitRate < 0.4) {
+    return "Try continuing sessions instead of starting fresh.";
+  }
+  if (overallHitRate >= 0.6) {
+    return "Great cache usage — keep sessions going.";
+  }
+
+  const best = topics[0];
+  const worst = topics.at(-1);
+  if (best && worst && best.topic !== worst.topic && best.cacheHitRate - worst.cacheHitRate >= 0.2) {
+    return `Your ${worst.topic} prompts cache poorly — try adding more context to earlier prompts.`;
+  }
+
+  return "Keep related prompts together so more context can be reused.";
 }
