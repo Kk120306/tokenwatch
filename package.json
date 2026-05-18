@@ -27,11 +27,14 @@
     "dist",
     "pricing.json",
     "README.md",
+    "CHANGELOG.md",
     "Preview.png"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "prepare": "npm run build",
+    "pack:check": "npm pack --dry-run --cache .npm-cache",
+    "prepublishOnly": "npm test && npm run typecheck && npm run pack:check",
     "test": "npm run build && node --test test/*.test.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

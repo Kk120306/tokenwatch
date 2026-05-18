@@ -263,6 +263,7 @@ Redaction does not edit source Claude Code or Codex CLI logs. Avoid committing p
 
 ## Documentation
 
+- [Changelog](CHANGELOG.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Data storage notes](docs/DATA_STORAGE.md)
 - [Test spec](docs/TEST_SPEC.md)
