@@ -56,6 +56,6 @@
 ## Export Tests
 
 - Markdown and CSV reports keep prompt-level rows, grouped totals, and summary rows.
-- JSON reports expose stable `schemaVersion: 1` summaries, model/topic groups, per-prompt token, cache, context, and goal fields.
+- JSON reports expose stable `schemaVersion: 1` summaries, model/topic groups, per-prompt token, cache, context, prompt-visibility, source-format, and goal fields.
 - Export mode can target an explicit `--session` path instead of always selecting the newest detected session.
 - Export redaction replaces prompt text with `[redacted]` while preserving topic classification and token totals.

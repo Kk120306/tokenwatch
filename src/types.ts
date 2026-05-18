@@ -1,4 +1,6 @@
 export type SessionSource = "claude" | "codex";
+export type TurnSourceFormat = "jsonl" | "sqlite" | "log" | "unknown";
+export type PromptVisibility = "prompt-and-usage" | "best-effort-prompt" | "usage-only";
 
 export interface TokenUsage {
   inputTokens: number;
@@ -19,6 +21,7 @@ export interface GoalMetadata {
 export interface TokenTurn {
   updateKey?: string;
   source: SessionSource;
+  sourceFormat?: TurnSourceFormat;
   model: string;
   timestamp: Date;
   timestampIso: string | null;
@@ -57,6 +60,8 @@ export interface ParsedTurn {
   timestampIso: string | null;
   model: string;
   source: "claude" | "codex";
+  sourceFormat: TurnSourceFormat;
+  promptVisibility: PromptVisibility;
   promptText: string | null;
   inputTokens: number;
   cachedTokens: number;

@@ -222,7 +222,7 @@ Markdown reports include totals, model breakdowns, topic breakdowns, cache savin
 
 CSV reports include prompt-level rows plus a session summary row for spreadsheet analysis.
 
-JSON reports include the same prompt-level data in a stable `schemaVersion: 1` structure for scripts and dashboards.
+JSON reports include the same prompt-level data in a stable `schemaVersion: 1` structure for scripts and dashboards. Each prompt row includes `sourceFormat` and `promptVisibility` so downstream tools can distinguish directly paired prompt text, best-effort prompt attribution, and usage-only rows.
 
 ## Pricing
 

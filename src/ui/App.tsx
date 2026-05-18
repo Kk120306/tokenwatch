@@ -437,6 +437,7 @@ function PromptRow({
       {expanded ? (
         <>
           <Text wrap="truncate-end">      "{turn.promptText ?? "prompt text unavailable"}"</Text>
+          <Text dimColor>      Data: {turn.source} {turn.sourceFormat} · {promptVisibilityLabel(turn.promptVisibility)}</Text>
           <Text>      Cache: <Text color={cache.color}>{turn.cacheGrade}</Text> — {cache.description}, saving ~{formatUsd(turn.cacheSavingsUsd)} this prompt</Text>
           <Text dimColor>      {formatTokenLine(turn)}</Text>
           {turn.goal ? (
@@ -817,6 +818,16 @@ function getContextUsageLabel(contextUsagePct: number | null): { color: string; 
     return { color: "yellow", dim: false, label: `${percent} of context window` };
   }
   return { color: "gray", dim: true, label: null };
+}
+
+function promptVisibilityLabel(visibility: ParsedTurn["promptVisibility"]): string {
+  if (visibility === "prompt-and-usage") {
+    return "prompt text paired with usage";
+  }
+  if (visibility === "best-effort-prompt") {
+    return "prompt text attached best-effort";
+  }
+  return "usage counted; prompt text unavailable";
 }
 
 function formatCacheTopic(topic: {

@@ -565,6 +565,7 @@ test("topic classification and manual override populate ParsedTurn topics", () =
   const parsed = createParsedTurn({
     updateKey: "codex-rollout:1:1",
     source: "codex",
+    sourceFormat: "sqlite",
     model: "gpt-5.5",
     timestamp: new Date("2026-05-18T00:00:00.000Z"),
     timestampIso: "2026-05-18T00:00:00.000Z",
@@ -580,6 +581,8 @@ test("topic classification and manual override populate ParsedTurn topics", () =
   assert.equal(parsed.topic, "research");
   assert.equal(parsed.topicConfidence, "manual");
   assert.equal(parsed.updateKey, "codex-rollout:1:1");
+  assert.equal(parsed.sourceFormat, "sqlite");
+  assert.equal(parsed.promptVisibility, "best-effort-prompt");
   assert.equal(parsed.cacheGrade, "F");
   assert.equal(parsed.cacheHitRate, 0.1);
   assert.equal(parsed.cacheSavingsUsd, 0);
@@ -588,6 +591,7 @@ test("topic classification and manual override populate ParsedTurn topics", () =
 
   const configured = createParsedTurn({
     source: "codex",
+    sourceFormat: "jsonl",
     model: "gpt-5.5",
     timestamp: new Date("2026-05-18T00:01:00.000Z"),
     timestampIso: "2026-05-18T00:01:00.000Z",
@@ -633,6 +637,7 @@ test("ParsedTurn context usage uses latest context snapshot when available", () 
   }, 8, {});
 
   assert.equal(parsed.inputTokens, 350);
+  assert.equal(parsed.promptVisibility, "prompt-and-usage");
   assert.equal(parsed.contextUsagePct, 0.25);
 });
 

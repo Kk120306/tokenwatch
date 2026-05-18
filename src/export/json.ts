@@ -1,5 +1,5 @@
 import { createExportSummary } from "./format.js";
-import type { GoalMetadata, ParsedTurn, PricingTable, SessionSource, SessionTotal } from "../types.js";
+import type { GoalMetadata, ParsedTurn, PricingTable, PromptVisibility, SessionSource, SessionTotal, TurnSourceFormat } from "../types.js";
 
 interface JsonReport {
   schemaVersion: 1;
@@ -36,6 +36,8 @@ interface JsonTurn {
   timestamp: string;
   model: string;
   source: SessionSource;
+  sourceFormat: TurnSourceFormat;
+  promptVisibility: PromptVisibility;
   topic: string | null;
   topicConfidence: string | null;
   promptText: string | null;
@@ -86,6 +88,8 @@ export function renderJsonReport(
       timestamp: turn.timestampIso ?? turn.timestamp.toISOString(),
       model: turn.model,
       source: turn.source,
+      sourceFormat: turn.sourceFormat,
+      promptVisibility: turn.promptVisibility,
       topic: turn.topic,
       topicConfidence: turn.topicConfidence,
       promptText: turn.promptText,

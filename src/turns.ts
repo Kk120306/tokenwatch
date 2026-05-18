@@ -2,7 +2,7 @@ import { scoreCacheEfficiency } from "./cache-score.js";
 import { resolveTurnTopic } from "./classifier.js";
 import { getContextUsagePct, getContextWindow } from "./context-windows.js";
 import { estimateCostUsd } from "./pricing.js";
-import type { ParsedTurn, PricingTable, TokenTurn, TopicRuleConfig } from "./types.js";
+import type { ParsedTurn, PricingTable, PromptVisibility, TokenTurn, TopicRuleConfig, TurnSourceFormat } from "./types.js";
 
 export function createParsedTurn(
   turn: TokenTurn,
@@ -21,6 +21,7 @@ export function createParsedTurn(
   const contextWindow = turn.contextWindow ?? getContextWindow(model);
   const contextInputTokens = turn.contextInputTokens ?? turn.usage.inputTokens;
   const contextUsagePct = getContextUsagePct(contextInputTokens, contextWindow);
+  const sourceFormat = normalizeSourceFormat(turn.sourceFormat);
   return {
     updateKey: turn.updateKey,
     id,
@@ -28,6 +29,8 @@ export function createParsedTurn(
     timestampIso: turn.timestampIso ?? turn.timestamp.toISOString(),
     model,
     source: turn.source,
+    sourceFormat,
+    promptVisibility: promptVisibilityFor(turn.promptText, sourceFormat),
     promptText: turn.promptText,
     inputTokens: turn.usage.inputTokens,
     cachedTokens: turn.usage.cachedInputTokens,
@@ -43,6 +46,21 @@ export function createParsedTurn(
     topicConfidence: topic.topicConfidence,
     goal: turn.goal ?? null
   };
+}
+
+function normalizeSourceFormat(format: unknown): TurnSourceFormat {
+  return format === "jsonl" || format === "sqlite" || format === "log"
+    ? format
+    : "unknown";
+}
+
+function promptVisibilityFor(promptText: string | null, sourceFormat: TurnSourceFormat): PromptVisibility {
+  if (!promptText) {
+    return "usage-only";
+  }
+  return sourceFormat === "sqlite" || sourceFormat === "log"
+    ? "best-effort-prompt"
+    : "prompt-and-usage";
 }
 
 function normalizeModel(model: unknown): string {

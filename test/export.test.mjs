@@ -55,6 +55,7 @@ test("Markdown report renders grouped totals, prompt fallback, and chronological
   assert.match(report, /\| gpt-5\.5 \| 1 \| ~\$0\.03 \| ~\$0\.031 \|/);
   assert.match(report, /## By topic/);
   assert.match(report, /### #1 — debugging — gpt-5\.5 — ~\$0\.03 — moderate/);
+  assert.match(report, /\*\*Source:\*\* codex jsonl \| \*\*Prompt visibility:\*\* prompt text paired with usage/);
   assert.match(report, /> fix the auth middleware not passing headers/);
   assert.match(report, /\.\.\./);
   assert.match(report, /### #2 — uncategorized — claude-haiku-4-5/);
@@ -89,10 +90,10 @@ test("CSV report quotes text and includes totals with overall cache hit rate", (
   ], pricing);
 
   const lines = csv.trimEnd().split("\n");
-  assert.equal(lines[0], "#,timestamp,model,source,topic,prompt_text,input_tokens,cached_tokens,output_tokens,reasoning_tokens,cost_usd,cost_label,cache_hit_rate,goal_id,goal_status,goal_tokens_used,goal_token_budget");
+  assert.equal(lines[0], "#,timestamp,model,source,source_format,prompt_visibility,topic,prompt_text,input_tokens,cached_tokens,output_tokens,reasoning_tokens,cost_usd,cost_label,cache_hit_rate,goal_id,goal_status,goal_tokens_used,goal_token_budget");
   assert.match(lines[1], /"fix, then say ""done"""/);
-  assert.match(lines[2], /claude-haiku-4-5,claude,building,,300,75,30,0,/);
-  assert.equal(lines[3], "TOTAL,,,,,,400,100,40,3,0.000294,,25.0%,,,,");
+  assert.match(lines[2], /claude-haiku-4-5,claude,jsonl,usage-only,building,,300,75,30,0,/);
+  assert.equal(lines[3], "TOTAL,,,,,,,,400,100,40,3,0.000294,,25.0%,,,,");
 });
 
 test("JSON report exposes stable summary, grouping, and prompt fields", () => {
@@ -146,7 +147,10 @@ test("JSON report exposes stable summary, grouping, and prompt fields", () => {
   });
   assert.equal(report.turns[0].cache.grade, "F");
   assert.equal(report.turns[0].context.window, 272000);
+  assert.equal(report.turns[0].sourceFormat, "jsonl");
+  assert.equal(report.turns[0].promptVisibility, "prompt-and-usage");
   assert.equal(report.turns[0].promptText, "export this prompt");
+  assert.equal(report.turns[1].promptVisibility, "usage-only");
 });
 
 test("export runner reads the active Codex session from the start and appends filename counters", async () => {
@@ -241,7 +245,7 @@ test("export runner reads the active Codex session from the start and appends fi
     assert.match(markdown, /\*\*Goal mode:\*\* active/);
     assert.match(markdown, /\*\*Goal objective:\*\* export goal metadata/);
     assert.match(markdown, /3k in · 750 cached · 120 out/);
-    assert.match(csv, /^1,2026-05-18T10:00:00.000Z,gpt-5.5,codex,building,build an export report,3000,750,120,14,.*goal-1,active,4321,10000$/m);
+    assert.match(csv, /^1,2026-05-18T10:00:00.000Z,gpt-5.5,codex,jsonl,prompt-and-usage,building,build an export report,3000,750,120,14,.*goal-1,active,4321,10000$/m);
   } finally {
     console.log = originalLog;
     restoreEnv("HOME", originalHome);
@@ -518,6 +522,8 @@ function parsedTurn(overrides) {
     timestampIso: overrides.timestampIso,
     model: overrides.model,
     source: overrides.source,
+    sourceFormat: overrides.sourceFormat ?? "jsonl",
+    promptVisibility: overrides.promptVisibility ?? (overrides.promptText ? "prompt-and-usage" : "usage-only"),
     promptText: overrides.promptText,
     inputTokens: usage.inputTokens,
     cachedTokens: usage.cachedInputTokens,

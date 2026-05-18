@@ -316,7 +316,7 @@ async function startCodexWatcher(
   }
 
   const onCodexTurn = (turn: TokenTurn): void => {
-    onTurn(withGoal(turn, getGoal()));
+    onTurn(withGoal(withSourceFormat(turn, result.format), getGoal()));
   };
 
   if (result.format === "sqlite") {
@@ -428,7 +428,7 @@ async function startJsonlWatcher(
       for await (const line of readNewLines(path, start, stat.size)) {
         const turn = parser(line);
         if (turn) {
-          onTurn(turn);
+          onTurn(withSourceFormat(turn, storage.format));
         }
       }
       offsets.set(path, stat.size);
@@ -517,7 +517,7 @@ function startCodexSqlitePoller(
       const result = readCodexTurnsSince(database, lastRowId, parser.parseRow);
       lastRowId = result.lastRowId;
       for (const turn of result.turns) {
-        onTurn(turn);
+        onTurn(withSourceFormat(turn, "sqlite"));
       }
     } catch (error) {
       logger(`tokenwatch: Codex SQLite read failed at ${codexDbPath}; falling back on next detection (${errorMessage(error)})`);
@@ -545,6 +545,10 @@ function storageSignature(result: StorageResult): string {
 
 function withGoal(turn: TokenTurn, goal: GoalMetadata | null): TokenTurn {
   return goal ? { ...turn, goal } : { ...turn, goal: null };
+}
+
+function withSourceFormat(turn: TokenTurn, sourceFormat: FoundStorageResult["format"]): TokenTurn {
+  return { ...turn, sourceFormat };
 }
 
 function isDuplicateTurn(turn: TokenTurn, seenTurnKeys: Set<string>): boolean {

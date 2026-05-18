@@ -243,15 +243,15 @@ async function readStorageTurns(storage: FoundStorageResult, activePath: string)
   let turns: TokenTurn[];
   if (storage.source === "codex" && storage.format === "sqlite") {
     turns = readCodexSqliteTurns(activePath);
-    return turns.map((turn) => ({ ...turn, goal: storage.goal ?? null }));
+    return turns.map((turn) => ({ ...turn, sourceFormat: storage.format, goal: storage.goal ?? null }));
   }
   const parser = storage.source === "claude"
     ? createClaudeParser().parseLine
     : createCodexJsonlParser({ model: storage.model }).parseLine;
   turns = await readParsedLines(activePath, parser);
   return storage.source === "codex"
-    ? turns.map((turn) => ({ ...turn, goal: storage.goal ?? null }))
-    : turns;
+    ? turns.map((turn) => ({ ...turn, sourceFormat: storage.format, goal: storage.goal ?? null }))
+    : turns.map((turn) => ({ ...turn, sourceFormat: storage.format }));
 }
 
 async function findActiveStoragePath(storage: FoundStorageResult): Promise<ActiveSessionFile | null> {

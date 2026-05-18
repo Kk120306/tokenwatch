@@ -57,6 +57,7 @@ export function renderMarkdownReport(
     lines.push(
       `### #${index + 1} — ${turn.topic ?? "uncategorized"} — ${turn.model} — ${formatUsdApprox(turn.costUsd)} — ${costLabel(turn.costUsd)}`,
       `**Time:** ${formatTime(turn.timestamp)} | ${formatTokenCount(turn.inputTokens)} in · ${formatTokenCount(turn.cachedTokens)} cached · ${formatTokenCount(turn.outputTokens)} out`,
+      `**Source:** ${turn.source} ${turn.sourceFormat} | **Prompt visibility:** ${formatPromptVisibility(turn.promptVisibility)}`,
       `> ${formatPromptText(turn.promptText)}`,
       "---",
       ""
@@ -121,6 +122,16 @@ function formatPromptText(promptText: string | null): string {
     return normalized;
   }
   return `${normalized.slice(0, 197)}...`;
+}
+
+function formatPromptVisibility(visibility: ParsedTurn["promptVisibility"]): string {
+  if (visibility === "prompt-and-usage") {
+    return "prompt text paired with usage";
+  }
+  if (visibility === "best-effort-prompt") {
+    return "prompt text attached best-effort";
+  }
+  return "usage counted; prompt text unavailable";
 }
 
 function latestGoal(turns: readonly ParsedTurn[]): GoalMetadata | null {
