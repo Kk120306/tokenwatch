@@ -124,3 +124,24 @@ test("TUI stats include cache savings and per-topic breakdowns", () => {
   assert.ok(stats.cacheSavingsUsd > 0);
   assert.equal(stats.cacheHitRate, 1600 / 4000);
 });
+
+test("TUI stats summarize goal-mode metadata from parsed turns", () => {
+  const goal = {
+    goalId: "goal-1",
+    objective: "implement goal mode usage",
+    status: "active",
+    tokenBudget: 10000,
+    tokensUsed: 2500,
+    timeUsedSeconds: 90
+  };
+  const stats = summarizeStats([
+    { ...turns[0], goal: null },
+    { ...turns[1], goal },
+    { ...turns[2], goal }
+  ], {});
+
+  assert.deepEqual(stats.goal, {
+    ...goal,
+    promptCount: 2
+  });
+});

@@ -1,5 +1,5 @@
 import { estimateCacheSavingsUsd } from "../pricing.js";
-import type { ParsedTurn, PricingTable } from "../types.js";
+import type { GoalMetadata, ParsedTurn, PricingTable } from "../types.js";
 
 export interface ModelSummary {
   model: string;
@@ -34,6 +34,7 @@ export interface StatsSummary {
   mostExpensiveTopic: TopicSummary | null;
   cheapestTopic: TopicSummary | null;
   topTopics: TopicSummary[];
+  goal: (GoalMetadata & { promptCount: number }) | null;
 }
 
 export function uniqueModels(turns: readonly ParsedTurn[]): string[] {
@@ -140,6 +141,7 @@ export function summarizeStats(
   const topics = summarizeTopics(turns);
   const mostExpensiveTurn = [...turns].sort((a, b) => b.costUsd - a.costUsd)[0] ?? null;
   const topicsByAverage = [...topics].sort((a, b) => b.avgCostUsd - a.avgCostUsd);
+  const goal = summarizeGoal(turns);
 
   return {
     totalCostUsd,
@@ -153,7 +155,8 @@ export function summarizeStats(
     cacheSavingsUsd,
     mostExpensiveTopic: topicsByAverage[0] ?? null,
     cheapestTopic: topicsByAverage.at(-1) ?? null,
-    topTopics: topics.slice(0, 5)
+    topTopics: topics.slice(0, 5),
+    goal
   };
 }
 
@@ -189,4 +192,16 @@ export function normalizeModel(model: unknown): string {
 
 function sourceSortKey(source: ParsedTurn["source"]): number {
   return source === "claude" ? 0 : 1;
+}
+
+function summarizeGoal(turns: readonly ParsedTurn[]): (GoalMetadata & { promptCount: number }) | null {
+  const goalTurns = turns.filter((turn) => turn.goal);
+  const latestGoal = goalTurns.at(-1)?.goal;
+  if (!latestGoal) {
+    return null;
+  }
+  return {
+    ...latestGoal,
+    promptCount: goalTurns.filter((turn) => turn.goal?.goalId === latestGoal.goalId).length
+  };
 }

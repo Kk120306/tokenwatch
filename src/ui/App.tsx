@@ -305,6 +305,9 @@ function PromptRow({
         <>
           <Text wrap="truncate-end">      "{turn.promptText ?? "prompt text unavailable"}"</Text>
           <Text dimColor>      {formatTokenLine(turn)}</Text>
+          {turn.goal ? (
+            <Text dimColor>      goal {turn.goal.status} · {formatCount(turn.goal.tokensUsed)} used · {turn.goal.objective || turn.goal.goalId}</Text>
+          ) : null}
         </>
       ) : null}
     </Box>
@@ -372,6 +375,12 @@ function StatsView({
       <Text>  Most expensive prompt   {mostExpensive}</Text>
       <Text>  Cache hit rate          {formatPercent(stats.cacheHitRate)}</Text>
       <Text>  Cache savings           ~{formatUsd(stats.cacheSavingsUsd)} saved</Text>
+      {stats.goal ? (
+        <>
+          <Text>  Goal mode              {stats.goal.status} · {formatCount(stats.goal.tokensUsed)} used{stats.goal.tokenBudget === null ? "" : ` / ${formatCount(stats.goal.tokenBudget)} budget`} · {formatDuration(stats.goal.timeUsedSeconds * 1000)}</Text>
+          <Text wrap="truncate-end">  Goal objective         {stats.goal.objective || stats.goal.goalId}</Text>
+        </>
+      ) : null}
       <Text>  Most expensive topic    {formatTopicAverage(stats.mostExpensiveTopic)}</Text>
       <Text>  Cheapest topic          {formatTopicAverage(stats.cheapestTopic)}</Text>
       <Text dimColor>  ─────────────────────────────────────────</Text>
@@ -415,7 +424,10 @@ function formatDetection(label: string, result: StorageResult | undefined): stri
   if (!result || result.status === "missing") {
     return `  ✗  ${label.padEnd(13)} not detected         none`;
   }
-  return `  ✓  ${label.padEnd(13)} ${shortPath(result.pattern ?? result.path).padEnd(20)} ${result.format}`;
+  const goal = result.source === "codex" && result.goal
+    ? ` · goal ${result.goal.status}`
+    : "";
+  return `  ✓  ${label.padEnd(13)} ${shortPath(result.pattern ?? result.path).padEnd(20)} ${result.format}${goal}`;
 }
 
 function formatTopicAverage(topic: { topic: string; avgCostUsd: number } | null): string {

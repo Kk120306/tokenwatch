@@ -7,6 +7,15 @@ export interface TokenUsage {
   reasoningTokens: number;
 }
 
+export interface GoalMetadata {
+  goalId: string;
+  objective: string;
+  status: string;
+  tokenBudget: number | null;
+  tokensUsed: number;
+  timeUsedSeconds: number;
+}
+
 export interface TokenTurn {
   updateKey?: string;
   source: SessionSource;
@@ -15,6 +24,7 @@ export interface TokenTurn {
   timestampIso: string | null;
   promptText: string | null;
   usage: TokenUsage;
+  goal?: GoalMetadata | null;
 }
 
 export interface TurnSummary extends TokenTurn {
@@ -47,6 +57,7 @@ export interface ParsedTurn {
   costUsd: number;
   topic: string | null;
   topicConfidence: TopicConfidence | null;
+  goal: GoalMetadata | null;
 }
 
 export interface PricingEntry {
@@ -67,6 +78,8 @@ export interface FoundStorageResult {
   paths: string[];
   pattern?: string;
   model?: string;
+  threadId?: string;
+  goal?: GoalMetadata | null;
   detail: string;
   warnings: string[];
 }

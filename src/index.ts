@@ -4,6 +4,7 @@ import { dirname, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import React from "react";
 import { render, type Instance } from "ink";
+import { runExport } from "./export/runner.js";
 import { loadPricing } from "./pricing.js";
 import { createParsedTurn } from "./turns.js";
 import App from "./ui/App.js";
@@ -18,6 +19,11 @@ interface CliArgs {
 }
 
 async function main(argv: readonly string[]): Promise<void> {
+  if (argv[0] === "export") {
+    await runExport(argv.slice(1));
+    return;
+  }
+
   const args = parseArgs(argv);
   if (args.help) {
     printHelp();
@@ -173,9 +179,14 @@ function printHelp(): void {
   console.log(`tokenwatch
 
 Usage:
+  tokenwatch export [--md] [--csv] [--out <dir>]
   tokenwatch [--claude-glob <glob>] [--codex-db <path>] [--topic <name>]
 
 Options:
+  export               Write Markdown and/or CSV reports for the current session without launching the TUI
+  --md                 With export, write only the Markdown report unless --csv is also present
+  --csv                With export, write only the CSV report unless --md is also present
+  --out <dir>          With export, write reports to this directory. Default: current directory
   --claude-glob <glob>  Claude Code JSONL glob. Default: auto-detect from $CLAUDE_HOME or ~/.claude
   --codex-db <path>     Codex CLI SQLite database. Default: auto-detect from $CODEX_HOME or ~/.codex
   --topic <name>        Manually tag every parsed prompt in this session with the given topic

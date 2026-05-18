@@ -229,13 +229,24 @@ test("Codex state watcher tails startup rollout but reads a new mid-session thre
     const initialDb = new Database(statePath);
     initialDb.exec(`
       CREATE TABLE threads (
+        id TEXT PRIMARY KEY,
         rollout_path TEXT,
         model TEXT,
         updated_at_ms INTEGER NOT NULL
       );
+      CREATE TABLE thread_goals (
+        thread_id TEXT PRIMARY KEY,
+        goal_id TEXT NOT NULL,
+        objective TEXT NOT NULL,
+        status TEXT NOT NULL,
+        token_budget INTEGER,
+        tokens_used INTEGER NOT NULL DEFAULT 0,
+        time_used_seconds INTEGER NOT NULL DEFAULT 0,
+        updated_at_ms INTEGER NOT NULL
+      );
     `);
     const now = Date.now();
-    initialDb.prepare("INSERT INTO threads (rollout_path, model, updated_at_ms) VALUES (?, ?, ?)").run(oldRolloutPath, "gpt-5", now);
+    initialDb.prepare("INSERT INTO threads (id, rollout_path, model, updated_at_ms) VALUES (?, ?, ?, ?)").run("old-thread", oldRolloutPath, "gpt-5", now);
     initialDb.close();
 
     watcher = await startTokenWatcher((turn) => turns.push(turn), {
@@ -250,7 +261,11 @@ test("Codex state watcher tails startup rollout but reads a new mid-session thre
     assert.deepEqual(turns, []);
 
     const updatedDb = new Database(statePath);
-    updatedDb.prepare("INSERT INTO threads (rollout_path, model, updated_at_ms) VALUES (?, ?, ?)").run(newRolloutPath, "gpt-5.5", now + 1);
+    updatedDb.prepare("INSERT INTO threads (id, rollout_path, model, updated_at_ms) VALUES (?, ?, ?, ?)").run("new-thread", newRolloutPath, "gpt-5.5", now + 1);
+    updatedDb.prepare(`
+      INSERT INTO thread_goals (thread_id, goal_id, objective, status, token_budget, tokens_used, time_used_seconds, updated_at_ms)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run("new-thread", "goal-1", "finish tokenwatch goal detection", "active", 5000, 1250, 30, now + 1);
     updatedDb.close();
 
     await waitFor(() => turns.length === 1);
@@ -260,6 +275,14 @@ test("Codex state watcher tails startup rollout but reads a new mid-session thre
       cachedInputTokens: 0,
       outputTokens: 25,
       reasoningTokens: 0
+    });
+    assert.deepEqual(turns[0].goal, {
+      goalId: "goal-1",
+      objective: "finish tokenwatch goal detection",
+      status: "active",
+      tokenBudget: 5000,
+      tokensUsed: 1250,
+      timeUsedSeconds: 30
     });
   } finally {
     await watcher?.close();

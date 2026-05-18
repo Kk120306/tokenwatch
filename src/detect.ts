@@ -2,7 +2,7 @@ import { accessSync, constants, existsSync, readdirSync, statSync } from "node:f
 import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import Database from "better-sqlite3";
-import type { ClaudeStorageResult, CodexStorageResult, FoundStorageResult, SessionSource, StorageFormat } from "./types.js";
+import type { ClaudeStorageResult, CodexStorageResult, FoundStorageResult, GoalMetadata, SessionSource, StorageFormat } from "./types.js";
 
 const JSONL_LIMIT = 10_000;
 const CODEX_MISSING_DETAIL = "set CODEX_HOME or start a Codex session";
@@ -25,8 +25,18 @@ interface CandidateBase {
 }
 
 interface CodexThreadRow {
+  threadId: string | null;
   rolloutPath: string | null;
   model: string | null;
+}
+
+interface CodexGoalRow {
+  goalId: string | null;
+  objective: string | null;
+  status: string | null;
+  tokenBudget: number | null;
+  tokensUsed: number | null;
+  timeUsedSeconds: number | null;
 }
 
 export function detectCodexStorage(options: DetectOptions = {}): CodexStorageResult {
@@ -152,7 +162,9 @@ function detectCodexStateSqlite(
     [active.rolloutPath],
     `${detail} → threads.rollout_path`,
     warnings,
-    active.model
+    active.model,
+    active.threadId,
+    active.goal
   );
 }
 
@@ -212,14 +224,16 @@ function validateCodexSqlite(path: string): { valid: true } | { valid: false; wa
 function readActiveCodexThread(
   path: string,
   warnings: string[]
-): { kind: "active"; rolloutPath: string; model: string } | { kind: "waiting" } | null {
+): { kind: "active"; rolloutPath: string; model: string; threadId?: string; goal: GoalMetadata | null } | { kind: "waiting" } | null {
   let db: Database.Database | null = null;
   try {
     db = new Database(path, { readonly: true, fileMustExist: true });
     const cutoffMs = Date.now() - CODEX_ACTIVE_THREAD_WINDOW_MS;
+    const threadColumns = getTableColumns(db, "threads");
+    const threadIdSelect = threadColumns.has("id") ? "id AS threadId" : "NULL AS threadId";
     const row = db
       .prepare<[number], CodexThreadRow>(`
-        SELECT rollout_path AS rolloutPath, model AS model
+        SELECT ${threadIdSelect}, rollout_path AS rolloutPath, model AS model
         FROM threads
         WHERE rollout_path IS NOT NULL
           AND rollout_path != ''
@@ -236,10 +250,13 @@ function readActiveCodexThread(
       return null;
     }
 
+    const goal = row.threadId ? readGoalForThread(db, row.threadId, warnings) : null;
     return {
       kind: "active",
       rolloutPath: row.rolloutPath,
-      model: row.model ?? "unknown"
+      model: row.model ?? "unknown",
+      threadId: row.threadId ?? undefined,
+      goal
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -249,6 +266,69 @@ function readActiveCodexThread(
     if (db?.open) {
       db.close();
     }
+  }
+}
+
+function readGoalForThread(
+  db: Database.Database,
+  threadId: string,
+  warnings: string[]
+): GoalMetadata | null {
+  const goalColumns = getTableColumns(db, "thread_goals");
+  const requiredColumns = [
+    "thread_id",
+    "goal_id",
+    "objective",
+    "status",
+    "token_budget",
+    "tokens_used",
+    "time_used_seconds",
+    "updated_at_ms"
+  ];
+  if (!requiredColumns.every((column) => goalColumns.has(column))) {
+    return null;
+  }
+
+  try {
+    const row = db
+      .prepare<[string], CodexGoalRow>(`
+        SELECT
+          goal_id AS goalId,
+          objective,
+          status,
+          token_budget AS tokenBudget,
+          tokens_used AS tokensUsed,
+          time_used_seconds AS timeUsedSeconds
+        FROM thread_goals
+        WHERE thread_id = ?
+        ORDER BY updated_at_ms DESC
+        LIMIT 1
+      `)
+      .get(threadId);
+    if (!row?.goalId) {
+      return null;
+    }
+    return {
+      goalId: row.goalId,
+      objective: row.objective ?? "",
+      status: row.status ?? "unknown",
+      tokenBudget: toNullableCount(row.tokenBudget),
+      tokensUsed: toCount(row.tokensUsed),
+      timeUsedSeconds: toCount(row.timeUsedSeconds)
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    warnings.push(`Codex goal metadata could not be read (${message}); continuing without goal mode details`);
+    return null;
+  }
+}
+
+function getTableColumns(db: Database.Database, tableName: "threads" | "thread_goals"): Set<string> {
+  try {
+    const rows = db.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{ name?: string }>;
+    return new Set(rows.map((row) => row.name).filter((name): name is string => Boolean(name)));
+  } catch {
+    return new Set();
   }
 }
 
@@ -272,7 +352,9 @@ function foundStorage<T extends SessionSource>(
   paths: string[],
   detail: string,
   warnings: string[],
-  model?: string
+  model?: string,
+  threadId?: string,
+  goal?: GoalMetadata | null
 ): FoundStorageResult & { source: T } {
   const sortedPaths = paths.sort((a, b) => getMtimeMs(b) - getMtimeMs(a));
   return {
@@ -283,6 +365,8 @@ function foundStorage<T extends SessionSource>(
     paths: sortedPaths,
     pattern: inferWatchPattern(path, sortedPaths, detail),
     model,
+    threadId,
+    goal,
     detail,
     warnings: [...warnings]
   };
@@ -417,4 +501,17 @@ function expandHome(path: string): string {
 function displayPath(path: string): string {
   const home = homedir();
   return path === home || path.startsWith(`${home}/`) ? `~${path.slice(home.length)}` : path;
+}
+
+function toCount(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? value
+    : 0;
+}
+
+function toNullableCount(value: unknown): number | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  return toCount(value);
 }

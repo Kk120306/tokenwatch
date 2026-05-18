@@ -90,6 +90,57 @@ test("Codex detector chooses the most recently updated thread from state_5", asy
   }
 });
 
+test("Codex detector attaches active goal metadata from thread_goals", async () => {
+  const home = await makeTempDir();
+  try {
+    const rolloutPath = join(home, "sessions", "2026", "05", "18", "rollout-goal.jsonl");
+    await mkdir(join(home, "sessions", "2026", "05", "18"), { recursive: true });
+    await writeFile(rolloutPath, "{}\n", "utf8");
+
+    const db = new Database(join(home, "state_5.sqlite"));
+    db.exec(`
+      CREATE TABLE threads (
+        id TEXT PRIMARY KEY,
+        rollout_path TEXT,
+        model TEXT,
+        updated_at_ms INTEGER NOT NULL
+      );
+      CREATE TABLE thread_goals (
+        thread_id TEXT PRIMARY KEY,
+        goal_id TEXT NOT NULL,
+        objective TEXT NOT NULL,
+        status TEXT NOT NULL,
+        token_budget INTEGER,
+        tokens_used INTEGER NOT NULL DEFAULT 0,
+        time_used_seconds INTEGER NOT NULL DEFAULT 0,
+        updated_at_ms INTEGER NOT NULL
+      );
+    `);
+    const now = Date.now();
+    db.prepare("INSERT INTO threads (id, rollout_path, model, updated_at_ms) VALUES (?, ?, ?, ?)").run("thread-1", rolloutPath, "gpt-5.5", now);
+    db.prepare(`
+      INSERT INTO thread_goals (thread_id, goal_id, objective, status, token_budget, tokens_used, time_used_seconds, updated_at_ms)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run("thread-1", "goal-1", "ship goal-mode token detection", "active", 200000, 12345, 67, now);
+    db.close();
+
+    const result = detectCodexStorage({ codexHome: home, defaultCodexHome: join(home, "missing") });
+
+    assert.equal(result.status, "found");
+    assert.equal(result.threadId, "thread-1");
+    assert.deepEqual(result.goal, {
+      goalId: "goal-1",
+      objective: "ship goal-mode token detection",
+      status: "active",
+      tokenBudget: 200000,
+      tokensUsed: 12345,
+      timeUsedSeconds: 67
+    });
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
 test("Codex detector prefers readable valid SQLite", async () => {
   const home = await makeTempDir();
   try {

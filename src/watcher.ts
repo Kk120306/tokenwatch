@@ -10,6 +10,7 @@ import type {
   CodexLogRow,
   CodexStorageResult,
   FoundStorageResult,
+  GoalMetadata,
   SessionSource,
   StorageDetectionSummary,
   StorageResult,
@@ -85,6 +86,7 @@ export async function startTokenWatcher(
   let activeCodexSource: "rollout-jsonl" | "sqlite" | "none" = "none";
   let codexStartupAnnouncementDone = false;
   let codexModel: string | undefined;
+  let codexGoal: GoalMetadata | null = null;
   let codexWaitingForSession = false;
   let detectionTimer: NodeJS.Timeout | null = null;
 
@@ -100,6 +102,9 @@ export async function startTokenWatcher(
 
     if (summary.codex.status === "found") {
       codexModel = summary.codex.model;
+      codexGoal = summary.codex.goal ?? null;
+    } else {
+      codexGoal = null;
     }
     codexWaitingForSession = summary.codex.status === "missing" && summary.codex.detail.includes("waiting for session");
 
@@ -153,7 +158,8 @@ export async function startTokenWatcher(
             resolvedOptions,
             logger,
             codexSignature === "" ? "tail" : "all",
-            () => codexModel
+            () => codexModel,
+            () => codexGoal
           );
         }
         codexSignature = nextCodexSignature;
@@ -287,18 +293,23 @@ async function startCodexWatcher(
   options: WatcherOptions,
   logger: (message: string) => void,
   initialReadMode: JsonlInitialReadMode,
-  getModel: () => string | undefined
+  getModel: () => string | undefined,
+  getGoal: () => GoalMetadata | null
 ): Promise<TokenWatcher | null> {
   if (result.status !== "found") {
     return null;
   }
 
+  const onCodexTurn = (turn: TokenTurn): void => {
+    onTurn(withGoal(turn, getGoal()));
+  };
+
   if (result.format === "sqlite") {
-    return startCodexSqlitePoller(onTurn, result.path, options, logger);
+    return startCodexSqlitePoller(onCodexTurn, result.path, options, logger);
   }
 
   return startJsonlWatcher(
-    onTurn,
+    onCodexTurn,
     result,
     () => createCodexJsonlParser({ getModel }).parseLine,
     options,
@@ -501,7 +512,11 @@ function storageSignature(result: StorageResult): string {
   if (result.status === "missing") {
     return `${result.source}:missing:${result.detail}:${result.warnings.join("|")}`;
   }
-  return `${result.source}:${result.format}:${result.path}:${result.paths.join("|")}:${result.model ?? ""}`;
+  return `${result.source}:${result.format}:${result.path}:${result.paths.join("|")}:${result.model ?? ""}:${result.goal?.goalId ?? ""}:${result.goal?.status ?? ""}:${result.goal?.tokensUsed ?? ""}`;
+}
+
+function withGoal(turn: TokenTurn, goal: GoalMetadata | null): TokenTurn {
+  return goal ? { ...turn, goal } : { ...turn, goal: null };
 }
 
 function errorMessage(error: unknown): string {

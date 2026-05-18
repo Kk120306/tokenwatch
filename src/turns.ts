@@ -24,7 +24,8 @@ export function createParsedTurn(
     reasoningTokens: turn.usage.reasoningTokens,
     costUsd: estimateCostUsd(model, turn.usage, pricing),
     topic: topic.topic,
-    topicConfidence: topic.topicConfidence
+    topicConfidence: topic.topicConfidence,
+    goal: turn.goal ?? null
   };
 }
 
