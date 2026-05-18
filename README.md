@@ -13,10 +13,7 @@
    ╚══╝╚══╝ ╚═╝  ╚═╝   ╚═╝    ╚═════╝╚═╝  ╚═╝
 ```
 
-[License: MIT](LICENSE)
-[Node.js >=18](package.json)
-[TypeScript](https://www.typescriptlang.org/)
-[Local-first](#data-and-privacy)
+[License: MIT](LICENSE) · [Node.js ≥18](package.json) · [TypeScript](https://www.typescriptlang.org/) · [Local-first](#data-and-privacy)
 
 > Watch Claude Code and Codex CLI token usage, cache savings, context pressure, and estimated cost from local data.
 
@@ -24,12 +21,10 @@
 
 ## Supported Sources
 
-
 | Source      | Local data used                                                                                                | Status    |
 | ----------- | -------------------------------------------------------------------------------------------------------------- | --------- |
 | Claude Code | JSONL session logs under `~/.claude` or `$CLAUDE_HOME`                                                         | Supported |
 | Codex CLI   | `state_5.sqlite`, `logs_2.sqlite`, rollout JSONL sessions, and log fallbacks under `~/.codex` or `$CODEX_HOME` | Supported |
-
 
 tokenwatch reads local files only. It does not mutate Claude Code or Codex CLI storage.
 
@@ -80,7 +75,6 @@ tokenwatch export --csv
 
 ## Dashboard Controls
 
-
 | Key         | Action                           |
 | ----------- | -------------------------------- |
 | `1`         | Prompts view                     |
@@ -97,7 +91,6 @@ tokenwatch export --csv
 | Escape      | Close filter overlay             |
 | Space       | Toggle a filter option           |
 | `q`         | Quit                             |
-
 
 ## Features
 
@@ -122,7 +115,6 @@ tokenwatch export [export-options]
 
 ### Options
 
-
 | Option                     | Description                                                                              |
 | -------------------------- | ---------------------------------------------------------------------------------------- |
 | `--claude-glob <glob>`     | Claude Code JSONL glob. Defaults to auto-detection from `$CLAUDE_HOME` or `~/.claude`.   |
@@ -134,9 +126,7 @@ tokenwatch export [export-options]
 | `--reset-budget`           | Reset persisted daily and weekly spend totals, then start watching.                      |
 | `-h`, `--help`             | Show help.                                                                               |
 
-
 ### Export Options
-
 
 | Option        | Description                                                       |
 | ------------- | ----------------------------------------------------------------- |
@@ -145,17 +135,14 @@ tokenwatch export [export-options]
 | `--csv`       | Write only CSV unless `--md` is also present.                     |
 | `--out <dir>` | Write reports to this directory. Default: `./tokenwatch-exports`. |
 
-
 ## Configuration
 
 Environment variables:
-
 
 | Variable      | Description                                            |
 | ------------- | ------------------------------------------------------ |
 | `CODEX_HOME`  | Codex home directory checked before `~/.codex`.        |
 | `CLAUDE_HOME` | Claude Code home directory checked before `~/.claude`. |
-
 
 Optional budget configuration:
 
@@ -252,4 +239,4 @@ Do not open public issues with private prompts, local session logs, access token
 
 ## License
 
-[MIT](LICENSE) © tokenwatch contributors
+[MIT](LICENSE) © tokenwatch contributors.
