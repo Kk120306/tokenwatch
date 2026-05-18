@@ -181,8 +181,11 @@ Token usage appears in `token_count` event message entries:
 }
 ```
 
-`last_token_usage` is the useful per-turn shape when present. `total_token_usage`
-is cumulative for the rollout.
+`last_token_usage` is the preferred per-turn shape when present.
+`total_token_usage` is cumulative for the rollout. When a rollout omits
+`last_token_usage`, tokenwatch can derive a per-turn value from the delta between
+two consecutive `total_token_usage` snapshots. If no previous total exists,
+tokenwatch does not guess and waits for a safer usage event.
 
 ### Codex State SQLite
 

@@ -53,14 +53,17 @@ interface CodexRolloutEntry {
     source?: unknown;
     info?: {
       model_context_window?: number;
-      last_token_usage?: {
-        input_tokens?: number;
-        output_tokens?: number;
-        cached_input_tokens?: number;
-        reasoning_output_tokens?: number;
-      };
+      last_token_usage?: RolloutUsageSnapshot;
+      total_token_usage?: RolloutUsageSnapshot;
     };
   };
+}
+
+interface RolloutUsageSnapshot {
+  input_tokens?: unknown;
+  output_tokens?: unknown;
+  cached_input_tokens?: unknown;
+  reasoning_output_tokens?: unknown;
 }
 
 let nextParserId = 0;
@@ -102,6 +105,7 @@ export function createCodexJsonlParser(options: CodexJsonlParserOptions = {}): C
   const parserId = ++nextParserId;
   let nextPromptId = 0;
   let activePrompt: ActiveCodexPrompt | null = null;
+  let previousTotalUsage: TokenUsage | null = null;
 
   return {
     parseLine(line: string): TokenTurn | null {
@@ -140,13 +144,20 @@ export function createCodexJsonlParser(options: CodexJsonlParserOptions = {}): C
         return null;
       }
       if (rolloutTurn.kind === "usage") {
+        const usage = rolloutTurn.lastUsage ?? usageDelta(previousTotalUsage, rolloutTurn.totalUsage);
+        if (rolloutTurn.totalUsage) {
+          previousTotalUsage = rolloutTurn.totalUsage;
+        }
+        if (!usage || isZeroUsage(usage)) {
+          return null;
+        }
         if (!activePrompt) {
           return null;
         }
         activePrompt = {
           ...activePrompt,
-          usage: addUsage(activePrompt.usage, rolloutTurn.usage),
-          contextInputTokens: rolloutTurn.usage.inputTokens,
+          usage: addUsage(activePrompt.usage, usage),
+          contextInputTokens: usage.inputTokens,
           contextWindow: rolloutTurn.contextWindow ?? activePrompt.contextWindow
         };
         return turnFromActivePrompt(activePrompt, options);
@@ -233,7 +244,7 @@ function turnFromResponseCompletedEvent(
 type RolloutParseResult =
   | { kind: "none" }
   | { kind: "prompt"; promptText: string | null; timestampIso: string | null }
-  | { kind: "usage"; usage: TokenUsage; contextWindow: number | null };
+  | { kind: "usage"; lastUsage: TokenUsage | null; totalUsage: TokenUsage | null; contextWindow: number | null };
 
 function parseRolloutEntry(value: unknown): RolloutParseResult {
   if (!value || typeof value !== "object") {
@@ -258,30 +269,20 @@ function parseRolloutEntry(value: unknown): RolloutParseResult {
     return { kind: "none" };
   }
 
-  const usage = entry.payload.info?.last_token_usage;
-  if (!usage) {
+  const lastUsage = normalizeCodexUsage(entry.payload.info?.last_token_usage);
+  const totalUsage = normalizeCodexUsage(entry.payload.info?.total_token_usage);
+  if (!lastUsage && !totalUsage) {
     return { kind: "none" };
   }
 
-  const normalizedUsage: TokenUsage = {
-    inputTokens: toCount(usage.input_tokens),
-    cachedInputTokens: toCount(usage.cached_input_tokens),
-    outputTokens: toCount(usage.output_tokens),
-    reasoningTokens: toCount(usage.reasoning_output_tokens)
-  };
-
-  if (
-    normalizedUsage.inputTokens === 0 &&
-    normalizedUsage.cachedInputTokens === 0 &&
-    normalizedUsage.outputTokens === 0 &&
-    normalizedUsage.reasoningTokens === 0
-  ) {
+  if ((!lastUsage || isZeroUsage(lastUsage)) && (!totalUsage || isZeroUsage(totalUsage))) {
     return { kind: "none" };
   }
 
   return {
     kind: "usage",
-    usage: normalizedUsage,
+    lastUsage,
+    totalUsage,
     contextWindow: toNullableCount(entry.payload.info?.model_context_window)
   };
 }
@@ -323,6 +324,37 @@ function addUsage(current: TokenUsage, next: TokenUsage): TokenUsage {
     outputTokens: current.outputTokens + next.outputTokens,
     reasoningTokens: current.reasoningTokens + next.reasoningTokens
   };
+}
+
+function normalizeCodexUsage(usage: RolloutUsageSnapshot | undefined): TokenUsage | null {
+  if (!usage || typeof usage !== "object") {
+    return null;
+  }
+  return {
+    inputTokens: toCount(usage.input_tokens),
+    cachedInputTokens: toCount(usage.cached_input_tokens),
+    outputTokens: toCount(usage.output_tokens),
+    reasoningTokens: toCount(usage.reasoning_output_tokens)
+  };
+}
+
+function usageDelta(previous: TokenUsage | null, current: TokenUsage | null): TokenUsage | null {
+  if (!previous || !current) {
+    return null;
+  }
+  return {
+    inputTokens: Math.max(0, current.inputTokens - previous.inputTokens),
+    cachedInputTokens: Math.max(0, current.cachedInputTokens - previous.cachedInputTokens),
+    outputTokens: Math.max(0, current.outputTokens - previous.outputTokens),
+    reasoningTokens: Math.max(0, current.reasoningTokens - previous.reasoningTokens)
+  };
+}
+
+function isZeroUsage(usage: TokenUsage): boolean {
+  return usage.inputTokens === 0 &&
+    usage.cachedInputTokens === 0 &&
+    usage.outputTokens === 0 &&
+    usage.reasoningTokens === 0;
 }
 
 function extractUserPromptText(payload: NonNullable<CodexRolloutEntry["payload"]>): string | null {

@@ -426,6 +426,60 @@ test("Codex JSONL parser aggregates rollout token_count events for one visible p
   });
 });
 
+test("Codex JSONL parser uses cumulative token_count deltas when last usage is absent", () => {
+  const parser = createCodexJsonlParser({ model: "gpt-5.5" });
+  assert.equal(parser.parseLine(JSON.stringify({
+    timestamp: "2026-05-18T00:00:00.000Z",
+    type: "event_msg",
+    payload: {
+      type: "token_count",
+      info: {
+        total_token_usage: {
+          input_tokens: 1000,
+          cached_input_tokens: 400,
+          output_tokens: 120,
+          reasoning_output_tokens: 50
+        }
+      }
+    }
+  })), null);
+
+  assert.equal(parser.parseLine(JSON.stringify({
+    timestamp: "2026-05-18T00:00:01.000Z",
+    type: "event_msg",
+    payload: {
+      type: "user_message",
+      message: "summarize cumulative token usage"
+    }
+  })), null);
+
+  const turn = parser.parseLine(JSON.stringify({
+    timestamp: "2026-05-18T00:00:02.000Z",
+    type: "event_msg",
+    payload: {
+      type: "token_count",
+      info: {
+        model_context_window: 237500,
+        total_token_usage: {
+          input_tokens: 1450,
+          cached_input_tokens: 625,
+          output_tokens: 180,
+          reasoning_output_tokens: 70
+        }
+      }
+    }
+  }));
+
+  assert.equal(turn.promptText, "summarize cumulative token usage");
+  assert.equal(turn.contextInputTokens, 450);
+  assert.deepEqual(turn.usage, {
+    inputTokens: 450,
+    cachedInputTokens: 225,
+    outputTokens: 60,
+    reasoningTokens: 20
+  });
+});
+
 test("Codex JSONL parser ignores internal and non-user rollout messages", () => {
   const parser = createCodexJsonlParser({ model: "gpt-5.5" });
   const ignoredPrompts = [

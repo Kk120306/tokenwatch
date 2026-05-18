@@ -7,6 +7,7 @@
 - Codex parser emits a turn for SQLite `logs.feedback_log_body` values containing `response.completed` usage.
 - Codex SQLite parser attaches preceding `user_message` telemetry to the next `response.completed` turn when present.
 - Codex parser extracts `input_tokens`, `input_tokens_details.cached_tokens`, `output_tokens`, and `response.model`.
+- Codex rollout parsing can derive per-turn usage from cumulative `total_token_usage` deltas when `last_token_usage` is absent and a previous total exists.
 - Codex parser ignores malformed, unrelated, or usage-free SQLite log rows.
 - Topic classification applies configured keyword rules before built-in rules, while manual `--topic` override remains highest priority.
 - Sanitized real-world fixtures cover Claude Code JSONL prompt pairing, Codex rollout JSONL usage snapshots, and Codex SQLite feedback-log prompt attribution.
