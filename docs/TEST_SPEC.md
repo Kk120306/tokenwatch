@@ -37,3 +37,9 @@
 - Build succeeds with `tsc`.
 - `node dist/index.js --help` prints usage.
 - `npm test` passes.
+
+## Export Tests
+
+- Markdown and CSV reports keep prompt-level rows, grouped totals, and summary rows.
+- JSON reports expose stable `schemaVersion: 1` summaries, model/topic groups, per-prompt token, cache, context, and goal fields.
+- Export mode can target an explicit `--session` path instead of always selecting the newest detected session.

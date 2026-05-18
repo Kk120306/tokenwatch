@@ -143,10 +143,13 @@ tokenwatch export [export-options]
 
 | Option        | Description                                                       |
 | ------------- | ----------------------------------------------------------------- |
-| `export`      | Write Markdown and/or CSV reports without launching the TUI.      |
-| `--md`        | Write only Markdown unless `--csv` is also present.               |
-| `--csv`       | Write only CSV unless `--md` is also present.                     |
-| `--out <dir>` | Write reports to this directory. Default: `./tokenwatch-exports`. |
+| `export`                    | Write reports without launching the TUI. Defaults to Markdown and CSV.                  |
+| `--md`                      | Include the Markdown report.                                                           |
+| `--csv`                     | Include the CSV report.                                                                |
+| `--json`                    | Include a structured JSON report with summary, group, prompt, cache, context, and goal fields. |
+| `--session <path>`          | Export a specific JSONL, log, or SQLite session instead of the newest detected session. |
+| `--session-source <source>` | Source for ambiguous export session JSONL paths: `claude` or `codex`.                  |
+| `--out <dir>`               | Write reports to this directory. Default: `./tokenwatch-exports`.                      |
 
 
 ## Configuration
@@ -179,10 +182,13 @@ tokenwatch export
 ```
 
 Export mode reads the most recent detected session and writes reports under `./tokenwatch-exports` by default.
+Pass `--session <path>` to export a specific session from `tokenwatch sessions`, and add `--session-source` when the path is an ambiguous JSONL file.
 
 Markdown reports include totals, model breakdowns, topic breakdowns, cache savings, prompt excerpts, and goal metadata when available.
 
 CSV reports include prompt-level rows plus a session summary row for spreadsheet analysis.
+
+JSON reports include the same prompt-level data in a stable `schemaVersion: 1` structure for scripts and dashboards.
 
 ## Pricing
 

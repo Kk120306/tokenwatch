@@ -277,17 +277,18 @@ function printHelp(): void {
   console.log(`tokenwatch
 
 Usage:
-  tokenwatch export [--md] [--csv] [--out <dir>]
+  tokenwatch export [--md] [--csv] [--json] [--session <path>] [--session-source <claude|codex>] [--out <dir>]
   tokenwatch sessions
   tokenwatch [--session <path>] [--session-source <claude|codex>] [--claude-glob <glob>] [--codex-db <path>] [--topic <name>] [--daily-budget <amount>] [--weekly-budget <amount>]
 
 Options:
-  export               Write Markdown and/or CSV reports for the most recent session without launching the TUI
+  export               Write Markdown, CSV, and/or JSON reports without launching the TUI
   sessions             List detected local Claude Code and Codex CLI sessions
-  --md                 With export, write only the Markdown report unless --csv is also present
-  --csv                With export, write only the CSV report unless --md is also present
+  --md                 With export, include the Markdown report
+  --csv                With export, include the CSV report
+  --json               With export, write a structured JSON report
   --out <dir>          With export, write reports to this directory. Default: ./tokenwatch-exports
-  --session <path>      Watch a specific JSONL, log, or SQLite session path
+  --session <path>      Watch or export a specific JSONL, log, or SQLite session path
   --session-source <source> Source for ambiguous --session JSONL paths: claude or codex
   --claude-glob <glob>  Claude Code JSONL glob. Default: auto-detect from $CLAUDE_HOME or ~/.claude
   --codex-db <path>     Codex CLI SQLite database. Default: auto-detect from $CODEX_HOME or ~/.codex

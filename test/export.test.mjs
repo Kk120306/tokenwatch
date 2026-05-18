@@ -5,6 +5,7 @@ import { join } from "node:path";
 import Database from "better-sqlite3";
 import test from "node:test";
 import { renderCsvReport } from "../dist/export/csv.js";
+import { renderJsonReport } from "../dist/export/json.js";
 import { renderMarkdownReport } from "../dist/export/markdown.js";
 import { runExport } from "../dist/export/runner.js";
 
@@ -92,6 +93,60 @@ test("CSV report quotes text and includes totals with overall cache hit rate", (
   assert.match(lines[1], /"fix, then say ""done"""/);
   assert.match(lines[2], /claude-haiku-4-5,claude,building,,300,75,30,0,/);
   assert.equal(lines[3], "TOTAL,,,,,,400,100,40,3,0.000294,,25.0%,,,,");
+});
+
+test("JSON report exposes stable summary, grouping, and prompt fields", () => {
+  const report = JSON.parse(renderJsonReport([
+    parsedTurn({
+      id: 1,
+      timestampIso: "2026-05-18T10:00:00.000Z",
+      model: "gpt-5.5",
+      source: "codex",
+      promptText: "export this prompt",
+      inputTokens: 100,
+      cachedTokens: 25,
+      outputTokens: 10,
+      reasoningTokens: 3,
+      topic: "debugging",
+      goal: {
+        goalId: "goal-json",
+        objective: "structured exports",
+        status: "active",
+        tokenBudget: 1000,
+        tokensUsed: 250,
+        timeUsedSeconds: 15
+      }
+    }),
+    parsedTurn({
+      id: 2,
+      timestampIso: "2026-05-18T10:05:00.000Z",
+      model: "gpt-5.5",
+      source: "codex",
+      promptText: null,
+      inputTokens: 300,
+      cachedTokens: 75,
+      outputTokens: 30,
+      topic: null
+    })
+  ], pricing));
+
+  assert.equal(report.schemaVersion, 1);
+  assert.equal(report.summary.prompts, 2);
+  assert.equal(report.summary.startedAt, "2026-05-18T10:00:00.000Z");
+  assert.equal(report.summary.endedAt, "2026-05-18T10:05:00.000Z");
+  assert.equal(report.summary.totals.inputTokens, 400);
+  assert.equal(report.summary.goal.goalId, "goal-json");
+  assert.deepEqual(report.byModel.map((group) => [group.name, group.prompts]), [["gpt-5.5", 2]]);
+  assert.deepEqual(report.byTopic.map((group) => [group.name, group.prompts]), [["uncategorized", 1], ["debugging", 1]]);
+  assert.deepEqual(report.turns[0].tokens, {
+    input: 100,
+    cached: 25,
+    output: 10,
+    reasoning: 3
+  });
+  assert.equal(report.turns[0].cache.grade, "F");
+  assert.equal(report.turns[0].context.window, 272000);
+  assert.equal(report.turns[0].promptText, "export this prompt");
 });
 
 test("export runner reads the active Codex session from the start and appends filename counters", async () => {
@@ -285,6 +340,93 @@ test("export runner defaults to tokenwatch-exports and exports only the most rec
   }
 });
 
+test("export runner can target an explicit session and write JSON only", async () => {
+  const originalHome = process.env.HOME;
+  const originalCodexHome = process.env.CODEX_HOME;
+  const originalClaudeHome = process.env.CLAUDE_HOME;
+  const home = await makeTempDir();
+  const codexHome = join(home, "codex");
+  const claudeHome = join(home, "claude");
+  const outDir = join(home, "reports");
+  const rolloutPath = join(codexHome, "sessions", "rollout.jsonl");
+  const claudePath = join(claudeHome, "session.jsonl");
+  const logs = [];
+  const originalLog = console.log;
+
+  try {
+    process.env.HOME = home;
+    process.env.CODEX_HOME = codexHome;
+    process.env.CLAUDE_HOME = claudeHome;
+    await mkdir(join(codexHome, "sessions"), { recursive: true });
+    await mkdir(claudeHome, { recursive: true });
+    await writeFile(rolloutPath, [
+      JSON.stringify({
+        timestamp: "2026-05-18T09:00:00.000Z",
+        type: "event_msg",
+        payload: {
+          type: "user_message",
+          message: "explicit codex export"
+        }
+      }),
+      JSON.stringify({
+        type: "event_msg",
+        payload: {
+          type: "token_count",
+          info: {
+            last_token_usage: {
+              input_tokens: 1000,
+              cached_input_tokens: 100,
+              output_tokens: 50
+            }
+          }
+        }
+      })
+    ].join("\n"), "utf8");
+    await writeFile(claudePath, [
+      JSON.stringify({
+        type: "user",
+        timestamp: "2026-05-18T10:00:00.000Z",
+        message: { content: "newer claude export" }
+      }),
+      JSON.stringify({
+        type: "assistant",
+        timestamp: "2026-05-18T10:01:00.000Z",
+        message: {
+          model: "claude-haiku-4-5",
+          usage: {
+            input_tokens: 500,
+            output_tokens: 25
+          }
+        }
+      })
+    ].join("\n"), "utf8");
+    await utimes(rolloutPath, new Date("2026-05-18T09:00:00.000Z"), new Date("2026-05-18T09:00:00.000Z"));
+    await utimes(claudePath, new Date("2026-05-18T10:00:00.000Z"), new Date("2026-05-18T10:00:00.000Z"));
+
+    console.log = (message) => {
+      logs.push(String(message));
+    };
+
+    await runExport(["--json", "--session", rolloutPath, "--session-source", "codex", "--out", outDir]);
+
+    assert.deepEqual(logs, [
+      "exported 1 prompts",
+      `  → ${join(outDir, "tokenwatch-2026-05-18.json")}`
+    ]);
+    const json = JSON.parse(await readFile(join(outDir, "tokenwatch-2026-05-18.json"), "utf8"));
+    assert.equal(json.summary.prompts, 1);
+    assert.equal(json.turns[0].source, "codex");
+    assert.equal(json.turns[0].promptText, "explicit codex export");
+    assert.doesNotMatch(JSON.stringify(json), /newer claude export/);
+  } finally {
+    console.log = originalLog;
+    restoreEnv("HOME", originalHome);
+    restoreEnv("CODEX_HOME", originalCodexHome);
+    restoreEnv("CLAUDE_HOME", originalClaudeHome);
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
 function parsedTurn(overrides) {
   const timestamp = new Date(overrides.timestampIso);
   const usage = {
@@ -312,6 +454,13 @@ function parsedTurn(overrides) {
     outputTokens: usage.outputTokens,
     reasoningTokens: usage.reasoningTokens,
     costUsd,
+    cacheGrade: usage.cachedInputTokens / usage.inputTokens >= 0.8 ? "A" : "F",
+    cacheHitRate: usage.inputTokens > 0 ? usage.cachedInputTokens / usage.inputTokens : 0,
+    cacheSavingsUsd: usage.cachedInputTokens > 0 && entry
+      ? (usage.cachedInputTokens / 1_000_000) * (entry.inputPerMillion - entry.cachedInputPerMillion)
+      : 0,
+    contextWindow: overrides.contextWindow ?? (overrides.model === "gpt-5.5" ? 272000 : null),
+    contextUsagePct: overrides.contextWindow === null ? null : usage.inputTokens / (overrides.contextWindow ?? (overrides.model === "gpt-5.5" ? 272000 : usage.inputTokens)),
     topic: overrides.topic,
     topicConfidence: overrides.topic ? "auto" : null,
     goal: overrides.goal ?? null

@@ -8,18 +8,23 @@ import { loadPricing } from "../pricing.js";
 import { createClaudeParser } from "../parsers/claude.js";
 import { createCodexJsonlParser, createCodexSqliteParser } from "../parsers/codex.js";
 import { createParsedTurn } from "../turns.js";
+import { resolveSessionSelection } from "../sessions.js";
 import { findMostRecentSessionFile, inspectPath, readCodexTurnsSince } from "../watcher.js";
 import { renderCsvReport } from "./csv.js";
 import { formatFilenameDate } from "./format.js";
+import { renderJsonReport } from "./json.js";
 import { renderMarkdownReport } from "./markdown.js";
-import type { ActiveSessionFile, FoundStorageResult, ParsedTurn, PricingTable, StorageResult, TokenTurn } from "../types.js";
+import type { ActiveSessionFile, FoundStorageResult, ParsedTurn, PricingTable, SessionSource, StorageResult, TokenTurn } from "../types.js";
 
 const DEFAULT_EXPORT_DIR = "tokenwatch-exports";
 
 interface ExportArgs {
   markdown: boolean;
   csv: boolean;
+  json: boolean;
   outDir: string;
+  sessionPath?: string;
+  sessionSource?: SessionSource;
 }
 
 interface ExportSession {
@@ -30,7 +35,7 @@ interface ExportSession {
 export async function runExport(argv: readonly string[]): Promise<void> {
   const args = parseExportArgs(argv);
   const pricing = loadPricing();
-  const turns = await readCurrentSessionTurns(pricing);
+  const turns = await readCurrentSessionTurns(pricing, args);
   if (turns.length === 0) {
     console.log("no active session found — start a prompt first");
     return;
@@ -52,6 +57,12 @@ export async function runExport(argv: readonly string[]): Promise<void> {
     writtenFiles.push(path);
   }
 
+  if (args.json) {
+    const path = await nextAvailablePath(args.outDir, filenameDate, "json");
+    await fs.writeFile(path, renderJsonReport(turns, pricing), "utf8");
+    writtenFiles.push(path);
+  }
+
   console.log(`exported ${turns.length} prompts`);
   for (const path of writtenFiles) {
     console.log(`  → ${displayPath(path)}`);
@@ -61,7 +72,10 @@ export async function runExport(argv: readonly string[]): Promise<void> {
 function parseExportArgs(argv: readonly string[]): ExportArgs {
   let markdown = false;
   let csv = false;
+  let json = false;
   let outDir = DEFAULT_EXPORT_DIR;
+  let sessionPath: string | undefined;
+  let sessionSource: SessionSource | undefined;
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -73,6 +87,10 @@ function parseExportArgs(argv: readonly string[]): ExportArgs {
       csv = true;
       continue;
     }
+    if (arg === "--json") {
+      json = true;
+      continue;
+    }
     if (arg === "--out") {
       const value = argv[index + 1];
       if (!value) {
@@ -82,10 +100,28 @@ function parseExportArgs(argv: readonly string[]): ExportArgs {
       index += 1;
       continue;
     }
+    if (arg === "--session") {
+      const value = argv[index + 1];
+      if (!value) {
+        throw new Error("Missing value for --session");
+      }
+      sessionPath = value;
+      index += 1;
+      continue;
+    }
+    if (arg === "--session-source") {
+      const value = argv[index + 1];
+      if (!value) {
+        throw new Error("Missing value for --session-source");
+      }
+      sessionSource = parseSessionSource(value);
+      index += 1;
+      continue;
+    }
     throw new Error(`Unknown export argument: ${arg}`);
   }
 
-  if (!markdown && !csv) {
+  if (!markdown && !csv && !json) {
     markdown = true;
     csv = true;
   }
@@ -93,15 +129,25 @@ function parseExportArgs(argv: readonly string[]): ExportArgs {
   return {
     markdown,
     csv,
-    outDir: resolve(outDir)
+    json,
+    outDir: resolve(outDir),
+    sessionPath,
+    sessionSource
   };
 }
 
-async function readCurrentSessionTurns(pricing: PricingTable): Promise<ParsedTurn[]> {
-  const detected: StorageResult[] = [
-    detectClaudeStorage(),
-    detectCodexStorage()
-  ];
+function parseSessionSource(value: string): SessionSource {
+  if (value === "claude" || value === "codex") {
+    return value;
+  }
+  throw new Error("--session-source must be \"claude\" or \"codex\"");
+}
+
+async function readCurrentSessionTurns(
+  pricing: PricingTable,
+  options: Pick<ExportArgs, "sessionPath" | "sessionSource"> = {}
+): Promise<ParsedTurn[]> {
+  const detected = detectExportStorage(options);
   const session = await findPreviousSession(detected);
   if (!session) {
     return [];
@@ -129,6 +175,24 @@ async function readCurrentSessionTurns(pricing: PricingTable): Promise<ParsedTur
   }
 
   return parsed.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+}
+
+function detectExportStorage(options: Pick<ExportArgs, "sessionPath" | "sessionSource">): StorageResult[] {
+  if (!options.sessionPath) {
+    return [
+      detectClaudeStorage(),
+      detectCodexStorage()
+    ];
+  }
+
+  const selection = resolveSessionSelection(options.sessionPath, options.sessionSource);
+  if (selection.source === "claude") {
+    return [detectClaudeStorage({ claudeGlob: selection.claudeGlob })];
+  }
+  return [detectCodexStorage({
+    codexDbPath: selection.codexDbPath,
+    codexSessionPath: selection.codexSessionPath
+  })];
 }
 
 async function findPreviousSession(detected: readonly StorageResult[]): Promise<ExportSession | null> {
@@ -199,7 +263,7 @@ async function readParsedLines(
   return turns;
 }
 
-async function nextAvailablePath(outDir: string, date: string, extension: "md" | "csv"): Promise<string> {
+async function nextAvailablePath(outDir: string, date: string, extension: "md" | "csv" | "json"): Promise<string> {
   for (let counter = 1; ; counter += 1) {
     const suffix = counter === 1 ? "" : `-${counter}`;
     const path = join(outDir, `tokenwatch-${date}${suffix}.${extension}`);
