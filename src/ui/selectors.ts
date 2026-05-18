@@ -27,6 +27,14 @@ export interface CacheTopicSummary {
   cacheGrade: ParsedTurn["cacheGrade"];
 }
 
+export interface ContextWindowSummary {
+  averageUsagePct: number | null;
+  highestTurn: ParsedTurn | null;
+  over75Count: number;
+  over90Count: number;
+  tip: string | null;
+}
+
 export interface Recommendation {
   text: string;
 }
@@ -50,6 +58,7 @@ export interface StatsSummary {
     worstTopic: CacheTopicSummary | null;
     tip: string;
   };
+  contextWindow: ContextWindowSummary;
   goal: (GoalMetadata & { promptCount: number }) | null;
 }
 
@@ -182,6 +191,7 @@ export function summarizeStats(
       worstTopic: cacheTopics.at(-1) ?? null,
       tip: createCacheTip(cacheHitRate, cacheTopics)
     },
+    contextWindow: summarizeContextWindow(turns),
     goal
   };
 }
@@ -271,4 +281,36 @@ function createCacheTip(overallHitRate: number, topics: readonly CacheTopicSumma
   }
 
   return "Keep related prompts together so more context can be reused.";
+}
+
+function summarizeContextWindow(turns: readonly ParsedTurn[]): ContextWindowSummary {
+  const knownTurns = turns.filter((turn) => typeof turn.contextUsagePct === "number");
+  if (knownTurns.length === 0) {
+    return {
+      averageUsagePct: null,
+      highestTurn: null,
+      over75Count: 0,
+      over90Count: 0,
+      tip: null
+    };
+  }
+
+  const averageUsagePct = knownTurns.reduce((total, turn) => total + (turn.contextUsagePct ?? 0), 0) / knownTurns.length;
+  const highestTurn = [...knownTurns].sort((a, b) => (b.contextUsagePct ?? 0) - (a.contextUsagePct ?? 0))[0] ?? null;
+  const over75Count = knownTurns.filter((turn) => (turn.contextUsagePct ?? 0) > 0.75).length;
+  const over90Count = knownTurns.filter((turn) => (turn.contextUsagePct ?? 0) > 0.9).length;
+  const highestIndex = highestTurn
+    ? turns.findIndex((turn) => turn.id === highestTurn.id) + 1
+    : 0;
+  const tip = highestTurn && (highestTurn.contextUsagePct ?? 0) > 0.75
+    ? `Prompt #${highestIndex} was close to the context limit. Starting a new session for large tasks keeps responses faster and cheaper.`
+    : null;
+
+  return {
+    averageUsagePct,
+    highestTurn,
+    over75Count,
+    over90Count,
+    tip
+  };
 }

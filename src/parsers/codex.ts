@@ -35,6 +35,7 @@ interface ActiveCodexPrompt {
   timestamp: Date;
   timestampIso: string | null;
   usage: TokenUsage;
+  contextWindow: number | null;
 }
 
 interface CodexRolloutEntry {
@@ -46,6 +47,7 @@ interface CodexRolloutEntry {
     role?: unknown;
     source?: unknown;
     info?: {
+      model_context_window?: number;
       last_token_usage?: {
         input_tokens?: number;
         output_tokens?: number;
@@ -97,7 +99,8 @@ export function createCodexJsonlParser(options: CodexJsonlParserOptions = {}): C
             promptText: rolloutTurn.promptText,
             timestamp: parseTimestamp(rolloutTurn.timestampIso),
             timestampIso: rolloutTurn.timestampIso,
-            usage: createEmptyUsage()
+            usage: createEmptyUsage(),
+            contextWindow: null
           };
         }
         return null;
@@ -108,7 +111,8 @@ export function createCodexJsonlParser(options: CodexJsonlParserOptions = {}): C
         }
         activePrompt = {
           ...activePrompt,
-          usage: addUsage(activePrompt.usage, rolloutTurn.usage)
+          usage: addUsage(activePrompt.usage, rolloutTurn.usage),
+          contextWindow: rolloutTurn.contextWindow ?? activePrompt.contextWindow
         };
         return turnFromActivePrompt(activePrompt, options);
       }
@@ -188,7 +192,7 @@ function turnFromResponseCompletedEvent(event: CodexResponseCompletedEvent): Tok
 type RolloutParseResult =
   | { kind: "none" }
   | { kind: "prompt"; promptText: string | null; timestampIso: string | null }
-  | { kind: "usage"; usage: TokenUsage };
+  | { kind: "usage"; usage: TokenUsage; contextWindow: number | null };
 
 function parseRolloutEntry(value: unknown): RolloutParseResult {
   if (!value || typeof value !== "object") {
@@ -236,7 +240,8 @@ function parseRolloutEntry(value: unknown): RolloutParseResult {
 
   return {
     kind: "usage",
-    usage: normalizedUsage
+    usage: normalizedUsage,
+    contextWindow: toNullableCount(entry.payload.info?.model_context_window)
   };
 }
 
@@ -251,7 +256,8 @@ function turnFromActivePrompt(
     timestamp: prompt.timestamp,
     timestampIso: prompt.timestampIso,
     promptText: prompt.promptText,
-    usage: prompt.usage
+    usage: prompt.usage,
+    contextWindow: prompt.contextWindow
   };
 }
 
@@ -357,4 +363,10 @@ function toCount(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) && value > 0
     ? value
     : 0;
+}
+
+function toNullableCount(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? value
+    : null;
 }

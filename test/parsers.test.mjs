@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { scoreCacheEfficiency } from "../dist/cache-score.js";
 import { classifyPromptTopic, resolveTurnTopic } from "../dist/classifier.js";
+import { getContextWindow } from "../dist/context-windows.js";
 import { createClaudeParser } from "../dist/parsers/claude.js";
 import { createCodexJsonlParser, parseCodexFeedbackLogBody, parseCodexJsonlLine, parseCodexLogRow } from "../dist/parsers/codex.js";
 import { createParsedTurn } from "../dist/turns.js";
@@ -86,6 +87,7 @@ test("Codex JSONL parser extracts rollout prompt text and token_count usage", ()
     payload: {
       type: "token_count",
       info: {
+        model_context_window: 128000,
         last_token_usage: {
           input_tokens: 46200,
           cached_input_tokens: 45400,
@@ -100,6 +102,7 @@ test("Codex JSONL parser extracts rollout prompt text and token_count usage", ()
   assert.equal(turn.model, "gpt-5.5");
   assert.equal(turn.promptText, "fix the auth middleware not passing headers");
   assert.equal(turn.timestamp.toISOString(), "2026-05-18T00:00:00.000Z");
+  assert.equal(turn.contextWindow, 128000);
   assert.deepEqual(turn.usage, {
     inputTokens: 46200,
     cachedInputTokens: 45400,
@@ -359,6 +362,14 @@ test("topic classification and manual override populate ParsedTurn topics", () =
   assert.equal(parsed.cacheGrade, "F");
   assert.equal(parsed.cacheHitRate, 0.1);
   assert.equal(parsed.cacheSavingsUsd, 0);
+  assert.equal(parsed.contextWindow, 128000);
+  assert.equal(parsed.contextUsagePct, 1000 / 128000);
+});
+
+test("context window lookup covers known models and unknown fallback", () => {
+  assert.equal(getContextWindow("claude-sonnet-4-6"), 200000);
+  assert.equal(getContextWindow("gpt-5.5"), 128000);
+  assert.equal(getContextWindow("unknown-model"), null);
 });
 
 test("cache efficiency scoring grades thresholds and savings", () => {

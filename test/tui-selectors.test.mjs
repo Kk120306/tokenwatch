@@ -147,6 +147,21 @@ test("TUI cache efficiency tips change for low and high cache sessions", () => {
   assert.notEqual(lowCache.cacheEfficiency.tip, highCache.cacheEfficiency.tip);
 });
 
+test("TUI stats summarize context window usage", () => {
+  const contextTurns = [
+    { ...turns[0], contextWindow: 128000, contextUsagePct: 0.25 },
+    { ...turns[1], contextWindow: 128000, contextUsagePct: 0.82 },
+    { ...turns[2], contextWindow: 128000, contextUsagePct: 0.94 }
+  ];
+  const stats = summarizeStats(contextTurns, {});
+
+  assert.equal(stats.contextWindow.averageUsagePct, (0.25 + 0.82 + 0.94) / 3);
+  assert.equal(stats.contextWindow.highestTurn.id, 3);
+  assert.equal(stats.contextWindow.over75Count, 2);
+  assert.equal(stats.contextWindow.over90Count, 1);
+  assert.match(stats.contextWindow.tip, /Prompt #3/);
+});
+
 test("TUI stats summarize goal-mode metadata from parsed turns", () => {
   const goal = {
     goalId: "goal-1",

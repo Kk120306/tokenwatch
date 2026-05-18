@@ -1,5 +1,6 @@
 import { scoreCacheEfficiency } from "./cache-score.js";
 import { resolveTurnTopic } from "./classifier.js";
+import { getContextUsagePct, getContextWindow } from "./context-windows.js";
 import { estimateCostUsd } from "./pricing.js";
 import type { ParsedTurn, PricingTable, TokenTurn } from "./types.js";
 
@@ -16,6 +17,8 @@ export function createParsedTurn(
     inputTokens: turn.usage.inputTokens,
     cachedTokens: turn.usage.cachedInputTokens
   }, pricing);
+  const contextWindow = turn.contextWindow ?? getContextWindow(model);
+  const contextUsagePct = getContextUsagePct(turn.usage.inputTokens, contextWindow);
   return {
     updateKey: turn.updateKey,
     id,
@@ -29,6 +32,8 @@ export function createParsedTurn(
     cacheGrade: cacheScore.cacheGrade,
     cacheHitRate: cacheScore.cacheHitRate,
     cacheSavingsUsd: cacheScore.cacheSavingsUsd,
+    contextWindow,
+    contextUsagePct,
     outputTokens: turn.usage.outputTokens,
     reasoningTokens: turn.usage.reasoningTokens,
     costUsd: estimateCostUsd(model, turn.usage, pricing),

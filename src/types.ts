@@ -24,6 +24,7 @@ export interface TokenTurn {
   timestampIso: string | null;
   promptText: string | null;
   usage: TokenUsage;
+  contextWindow?: number | null;
   goal?: GoalMetadata | null;
 }
 
@@ -56,6 +57,8 @@ export interface ParsedTurn {
   cacheGrade: CacheGrade;
   cacheHitRate: number;
   cacheSavingsUsd: number;
+  contextWindow: number | null;
+  contextUsagePct: number | null;
   outputTokens: number;
   reasoningTokens: number;
   costUsd: number;

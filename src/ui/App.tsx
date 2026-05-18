@@ -16,7 +16,7 @@ import {
 
 type ActiveView = "prompts" | "models" | "stats";
 type FilterMode = "models" | "topics";
-type PromptSortMode = "time" | "cacheGrade";
+type PromptSortMode = "time" | "cacheGrade" | "contextUsage";
 type StatsFocus = "top" | "recommendations";
 
 export interface AppState {
@@ -48,7 +48,7 @@ interface FilterOverlayState {
 
 const BAR_WIDTH = 44;
 const STALE_AFTER_MS = 30_000;
-const SHORTCUTS = "[1] Prompts  [2] Models  [3] Stats  [r] Recommendations  [g] Cache sort  [f] Models  [t] Topics  [c] Tokens  [q] Quit";
+const SHORTCUTS = "[1] Prompts  [2] Models  [3] Stats  [r] Recs  [g] Cache sort  [w] Context sort  [f] Models  [t] Topics  [c] Tokens  [q] Quit";
 
 export default function App({
   turns,
@@ -142,6 +142,11 @@ export default function App({
     }
     if (input === "g") {
       setPromptSortMode((current) => current === "cacheGrade" ? "time" : "cacheGrade");
+      setActiveView("prompts");
+      return;
+    }
+    if (input === "w") {
+      setPromptSortMode((current) => current === "contextUsage" ? "time" : "contextUsage");
       setActiveView("prompts");
       return;
     }
@@ -316,6 +321,7 @@ function PromptRow({
   const cost = getCostLabel(turn.costUsd);
   const model = normalizeModel(turn.model);
   const cache = getCacheGradeLabel(turn.cacheGrade);
+  const context = getContextUsageLabel(turn.contextUsagePct);
   return (
     <Box flexDirection="column">
       <Text color={selected ? "cyan" : undefined}>
@@ -325,6 +331,9 @@ function PromptRow({
         {showTokens ? formatTokenLine(turn) : `~${formatUsd(turn.costUsd)}`}
       </Text>
       <Text dimColor>      {costBar(turn.costUsd, maxTurnCost)}</Text>
+      {context ? (
+        <Text color={context.color} dimColor={context.dim}>      {contextBar(turn.contextUsagePct ?? 0)}{context.label ? `  ${context.label}` : ""}</Text>
+      ) : null}
       {expanded ? (
         <>
           <Text wrap="truncate-end">      "{turn.promptText ?? "prompt text unavailable"}"</Text>
@@ -432,6 +441,13 @@ function StatsView({
       <Text>  Best session topic   {formatCacheTopic(stats.cacheEfficiency.bestTopic)}</Text>
       <Text>  Worst topic          {formatCacheTopic(stats.cacheEfficiency.worstTopic)}</Text>
       <Text wrap="wrap">  Tip: {stats.cacheEfficiency.tip}</Text>
+      <Text dimColor>  ─────────────────────────────────────────</Text>
+      <Text bold>  Context Window</Text>
+      <Text>  Average usage        {stats.contextWindow.averageUsagePct === null ? "unknown" : `${formatPercent(stats.contextWindow.averageUsagePct)} of context`}</Text>
+      <Text>  Highest prompt       {formatHighestContextTurn(stats.contextWindow.highestTurn, turns)}</Text>
+      <Text>  Prompts over 75%     {stats.contextWindow.over75Count} prompts</Text>
+      <Text>  Prompts over 90%     {stats.contextWindow.over90Count} prompts</Text>
+      {stats.contextWindow.tip ? <Text wrap="wrap">  Tip: {stats.contextWindow.tip}</Text> : null}
       <RecommendationsSection turns={turns} recommendations={recommendations} />
     </Box>
   );
@@ -586,6 +602,23 @@ function getCacheGradeLabel(grade: ParsedTurn["cacheGrade"]): { color: string; d
   };
 }
 
+function getContextUsageLabel(contextUsagePct: number | null): { color: string; dim: boolean; label: string | null } | null {
+  if (contextUsagePct === null) {
+    return null;
+  }
+  const percent = formatPercent(contextUsagePct);
+  if (contextUsagePct > 0.9) {
+    return { color: "red", dim: false, label: `${percent} of context — almost full, consider starting fresh` };
+  }
+  if (contextUsagePct >= 0.75) {
+    return { color: "#ffa500", dim: false, label: `${percent} of context — getting full` };
+  }
+  if (contextUsagePct >= 0.5) {
+    return { color: "yellow", dim: false, label: `${percent} of context window` };
+  }
+  return { color: "gray", dim: true, label: null };
+}
+
 function formatCacheTopic(topic: {
   topic: string;
   cacheHitRate: number;
@@ -597,9 +630,24 @@ function formatCacheTopic(topic: {
   return `${topic.topic}   ${topic.cacheGrade}  (${formatPercent(topic.cacheHitRate)} hit rate)`;
 }
 
+function formatHighestContextTurn(turn: ParsedTurn | null, turns: readonly ParsedTurn[]): string {
+  if (!turn || turn.contextUsagePct === null) {
+    return "unknown";
+  }
+  const index = Math.max(0, turns.findIndex((candidate) => candidate.id === turn.id)) + 1;
+  const warning = turn.contextUsagePct > 0.9 ? "  ⚠ nearly full" : "";
+  return `#${index}  ${formatPercent(turn.contextUsagePct)}${warning}`;
+}
+
 function sortPromptTurns(turns: readonly ParsedTurn[], sortMode: PromptSortMode): ParsedTurn[] {
   if (sortMode === "time") {
     return [...turns];
+  }
+  if (sortMode === "contextUsage") {
+    return [...turns].sort((a, b) => (
+      (b.contextUsagePct ?? -1) - (a.contextUsagePct ?? -1) ||
+      a.timestamp.getTime() - b.timestamp.getTime()
+    ));
   }
   return [...turns].sort((a, b) => (
     cacheGradeSortValue(a.cacheGrade) - cacheGradeSortValue(b.cacheGrade) ||
@@ -610,6 +658,11 @@ function sortPromptTurns(turns: readonly ParsedTurn[], sortMode: PromptSortMode)
 
 function costBar(value: number, maxValue: number): string {
   const filled = maxValue <= 0 ? 0 : Math.max(1, Math.round((value / maxValue) * BAR_WIDTH));
+  return `${"█".repeat(filled)}${"░".repeat(BAR_WIDTH - filled)}`;
+}
+
+function contextBar(contextUsagePct: number): string {
+  const filled = Math.max(0, Math.min(BAR_WIDTH, Math.round(contextUsagePct * BAR_WIDTH)));
   return `${"█".repeat(filled)}${"░".repeat(BAR_WIDTH - filled)}`;
 }
 
