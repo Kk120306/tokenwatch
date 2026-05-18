@@ -2,6 +2,23 @@
   "name": "tokenwatch",
   "version": "0.1.0",
   "description": "Real-time per-prompt token usage monitor for Claude Code and Codex CLI sessions.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Kk120306/tokenwatch.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Kk120306/tokenwatch/issues"
+  },
+  "homepage": "https://github.com/Kk120306/tokenwatch#readme",
+  "keywords": [
+    "token-usage",
+    "claude-code",
+    "codex-cli",
+    "terminal",
+    "tui",
+    "cost-tracking"
+  ],
   "type": "module",
   "bin": {
     "tokenwatch": "./dist/index.js"

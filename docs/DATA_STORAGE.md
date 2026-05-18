@@ -80,8 +80,8 @@ Observed paths on this machine:
 Observed SQLite files:
 
 ```text
-/Users/kaikameyama/.codex/logs_2.sqlite
-/Users/kaikameyama/.codex/state_5.sqlite
+~/.codex/logs_2.sqlite
+~/.codex/state_5.sqlite
 ```
 
 ### Codex Rollout JSONL
