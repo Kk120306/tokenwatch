@@ -248,6 +248,49 @@ test("Codex JSONL parser extracts rollout prompt text and token_count usage", ()
   });
 });
 
+test("Codex JSONL parser pairs response_item user prompts with token_count usage", () => {
+  const parser = createCodexJsonlParser({ model: "gpt-5.5" });
+  assert.equal(parser.parseLine(JSON.stringify({
+    timestamp: "2026-05-18T00:01:00.000Z",
+    type: "response_item",
+    payload: {
+      type: "message",
+      role: "user",
+      content: [
+        {
+          type: "input_text",
+          text: "Review token spend by prompt and model"
+        }
+      ]
+    }
+  })), null);
+
+  const turn = parser.parseLine(JSON.stringify({
+    timestamp: "2026-05-18T00:01:03.000Z",
+    type: "event_msg",
+    payload: {
+      type: "token_count",
+      info: {
+        last_token_usage: {
+          input_tokens: 1500,
+          cached_input_tokens: 500,
+          output_tokens: 120,
+          reasoning_output_tokens: 30
+        }
+      }
+    }
+  }));
+
+  assert.equal(turn.promptText, "Review token spend by prompt and model");
+  assert.equal(turn.timestampIso, "2026-05-18T00:01:00.000Z");
+  assert.deepEqual(turn.usage, {
+    inputTokens: 1500,
+    cachedInputTokens: 500,
+    outputTokens: 120,
+    reasoningTokens: 30
+  });
+});
+
 test("Codex JSONL parser covers sanitized rollout fixture", async () => {
   const lines = (await readFile("test/fixtures/codex-rollout-realistic.jsonl", "utf8")).trimEnd().split("\n");
   const parser = createCodexJsonlParser({ model: "gpt-5.5" });

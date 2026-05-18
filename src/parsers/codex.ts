@@ -241,17 +241,17 @@ function parseRolloutEntry(value: unknown): RolloutParseResult {
   }
 
   const entry = value as CodexRolloutEntry;
-  if (entry.type !== EVENT_MSG_TYPE) {
-    return { kind: "none" };
-  }
-
-  if (entry.payload?.type === USER_MESSAGE_TYPE) {
-    const promptText = extractUserPromptText(entry.payload);
+  if (isRolloutPromptEntry(entry)) {
+    const promptText = findUserPromptText(entry);
     return {
       kind: "prompt",
       promptText,
       timestampIso: typeof entry.timestamp === "string" ? entry.timestamp : null
     };
+  }
+
+  if (entry.type !== EVENT_MSG_TYPE) {
+    return { kind: "none" };
   }
 
   if (entry.payload?.type !== TOKEN_COUNT_TYPE) {
@@ -284,6 +284,10 @@ function parseRolloutEntry(value: unknown): RolloutParseResult {
     usage: normalizedUsage,
     contextWindow: toNullableCount(entry.payload.info?.model_context_window)
   };
+}
+
+function isRolloutPromptEntry(entry: CodexRolloutEntry): boolean {
+  return entry.payload?.type === USER_MESSAGE_TYPE || entry.type === "response_item";
 }
 
 function turnFromActivePrompt(
