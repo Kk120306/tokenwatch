@@ -17,7 +17,10 @@ Claude Code and Codex CLI do not use the same storage layout.
 For Codex, the best single source for both prompt text and structured token
 count events is the rollout JSONL file. SQLite has useful aggregate or telemetry
 data, but prompt text and split token counts are not both available as clean
-relational columns in one table.
+relational columns in one table. tokenwatch therefore treats Codex SQLite prompt
+text as best-effort: usage rows are counted, and prompt text is attached only
+when a preceding user-message telemetry row is available in the same ordered log
+stream.
 
 ## Claude Code
 
@@ -289,19 +292,33 @@ It also supports the legacy fallback:
 cachedInputTokens = response.usage.cached_input_tokens
 ```
 
+Some Codex SQLite logs also include user-message telemetry before the
+`response.completed` row:
+
+```text
+Received message {"type":"event_msg","payload":{"type":"user_message","message":"actual prompt text"}}
+```
+
+When present, tokenwatch stores that prompt text and attaches it to the next
+valid `response.completed` usage row. If the prompt row is absent, malformed, or
+filtered as internal/tool-generated, the turn remains usage-only and prompt text
+is reported as unavailable.
+
 ## Implementation Notes
 
 Current tokenwatch behavior:
 
 - Claude Code: watches JSONL files and parses assistant `message.usage`.
-- Codex CLI: prefers `logs_2.sqlite` when valid and readable, then falls back to
-  JSONL/log files.
-- Codex SQLite parsing currently targets `response.completed` payloads in
-  `logs.feedback_log_body`.
+- Codex CLI: prefers active rollout JSONL from `state_5.sqlite` when available,
+  then falls back to valid `logs_2.sqlite`, session JSONL, and log files.
+- Codex SQLite parsing targets `response.completed` payloads in
+  `logs.feedback_log_body` and best-effort preceding `user_message` telemetry for
+  prompt attribution.
 - Codex rollout JSONL `token_count` events are the structured source found on
   this machine for `input_tokens`, `cached_input_tokens`, `output_tokens`, and
   `last_token_usage`.
 
-For future Codex parser work, use `state_5.sqlite.threads.rollout_path` to map a
-thread to its rollout JSONL file, then parse `response_item` or `user_message`
-entries for prompt text and `token_count` entries for token usage.
+For future Codex parser work, prefer `state_5.sqlite.threads.rollout_path` to
+map a thread to its rollout JSONL file, then parse `response_item` or
+`user_message` entries for prompt text and `token_count` entries for token
+usage.

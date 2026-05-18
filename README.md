@@ -9,13 +9,24 @@
 ## Supported Sources
 
 
-| Source      | Local data used                                                                                                | Status    |
-| ----------- | -------------------------------------------------------------------------------------------------------------- | --------- |
-| Claude Code | JSONL session logs under `~/.claude` or `$CLAUDE_HOME`                                                         | Supported |
-| Codex CLI   | `state_5.sqlite`, `logs_2.sqlite`, rollout JSONL sessions, and log fallbacks under `~/.codex` or `$CODEX_HOME` | Supported |
+| Source      | Local data used                                                                                                | Prompt visibility                                      | Status    |
+| ----------- | -------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ | --------- |
+| Claude Code | JSONL session logs under `~/.claude` or `$CLAUDE_HOME`                                                         | Prompt text plus assistant usage when both log entries exist | Supported |
+| Codex CLI   | `state_5.sqlite`, `logs_2.sqlite`, rollout JSONL sessions, and log fallbacks under `~/.codex` or `$CODEX_HOME` | Rollout JSONL has prompt text; SQLite prompt text is best-effort | Supported |
 
 
 tokenwatch reads local files only. It does not mutate Claude Code or Codex CLI storage.
+
+## Visibility Model
+
+tokenwatch reports the most precise local data each supported source exposes:
+
+- Claude Code JSONL: user prompt text is paired with the next assistant usage entry.
+- Codex rollout JSONL: `user_message` or user `response_item` entries are paired with `token_count` usage.
+- Codex `state_5.sqlite`: points tokenwatch to the active rollout JSONL and can add model and goal metadata.
+- Codex `logs_2.sqlite`: `response.completed` usage is always counted; prompt text is attached only when a preceding user-message telemetry row is present.
+
+When local storage does not expose prompt text for a turn, tokenwatch still counts tokens, cost, cache, model, and totals, and reports the prompt as unavailable instead of guessing.
 
 ## Installation
 
