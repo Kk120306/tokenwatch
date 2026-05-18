@@ -8,14 +8,17 @@ import { addSpend, loadSpend, resetSpend, type SpendRecord } from "./budget.js";
 import { hasBudget, loadConfig, type TokenwatchConfig } from "./config.js";
 import { runExport } from "./export/runner.js";
 import { loadPricing } from "./pricing.js";
+import { detectSessionSummary, renderSessionList, resolveSessionSelection } from "./sessions.js";
 import { createParsedTurn } from "./turns.js";
 import App from "./ui/App.js";
 import { DEFAULT_WATCHER_OPTIONS, startTokenWatcher, type TokenWatcher } from "./watcher.js";
-import type { ParsedTurn, PricingTable, StorageDetectionSummary, TokenTurn, WatcherOptions } from "./types.js";
+import type { ParsedTurn, PricingTable, SessionSource, StorageDetectionSummary, TokenTurn, WatcherOptions } from "./types.js";
 
 interface CliArgs {
   claudeGlob?: string;
   codexDbPath?: string;
+  sessionPath?: string;
+  sessionSource?: SessionSource;
   topic?: string;
   dailyBudgetUsd?: number;
   weeklyBudgetUsd?: number;
@@ -27,6 +30,10 @@ interface CliArgs {
 async function main(argv: readonly string[]): Promise<void> {
   if (argv[0] === "export") {
     await runExport(argv.slice(1));
+    return;
+  }
+  if (argv[0] === "sessions") {
+    console.log(renderSessionList(detectSessionSummary()).trimEnd());
     return;
   }
 
@@ -70,6 +77,13 @@ async function main(argv: readonly string[]): Promise<void> {
       rerender();
     }
   };
+
+  if (args.sessionPath) {
+    const selection = resolveSessionSelection(args.sessionPath, args.sessionSource);
+    options.claudeGlob = selection.claudeGlob ?? options.claudeGlob;
+    options.codexDbPath = selection.codexDbPath ?? options.codexDbPath;
+    options.codexSessionPath = selection.codexSessionPath ?? options.codexSessionPath;
+  }
 
   app = render(renderApp(state, pricing, budgetConfig, sessionStart, version, close), {
     exitOnCtrlC: false,
@@ -166,6 +180,16 @@ function parseArgs(argv: readonly string[]): CliArgs {
       index += 1;
       continue;
     }
+    if (arg === "--session") {
+      args.sessionPath = requireValue(argv, index, arg);
+      index += 1;
+      continue;
+    }
+    if (arg === "--session-source") {
+      args.sessionSource = parseSessionSource(requireValue(argv, index, arg), arg);
+      index += 1;
+      continue;
+    }
     if (arg === "--topic") {
       args.topic = requireValue(argv, index, arg);
       index += 1;
@@ -219,6 +243,13 @@ function parseAlertAt(value: string, flag: string): number {
   return parsed;
 }
 
+function parseSessionSource(value: string, flag: string): SessionSource {
+  if (value === "claude" || value === "codex") {
+    return value;
+  }
+  throw new Error(`${flag} must be "claude" or "codex"`);
+}
+
 function requireValue(argv: readonly string[], index: number, flag: string): string {
   const value = argv[index + 1];
   if (!value) {
@@ -247,13 +278,17 @@ function printHelp(): void {
 
 Usage:
   tokenwatch export [--md] [--csv] [--out <dir>]
-  tokenwatch [--claude-glob <glob>] [--codex-db <path>] [--topic <name>] [--daily-budget <amount>] [--weekly-budget <amount>]
+  tokenwatch sessions
+  tokenwatch [--session <path>] [--session-source <claude|codex>] [--claude-glob <glob>] [--codex-db <path>] [--topic <name>] [--daily-budget <amount>] [--weekly-budget <amount>]
 
 Options:
   export               Write Markdown and/or CSV reports for the most recent session without launching the TUI
+  sessions             List detected local Claude Code and Codex CLI sessions
   --md                 With export, write only the Markdown report unless --csv is also present
   --csv                With export, write only the CSV report unless --md is also present
   --out <dir>          With export, write reports to this directory. Default: ./tokenwatch-exports
+  --session <path>      Watch a specific JSONL, log, or SQLite session path
+  --session-source <source> Source for ambiguous --session JSONL paths: claude or codex
   --claude-glob <glob>  Claude Code JSONL glob. Default: auto-detect from $CLAUDE_HOME or ~/.claude
   --codex-db <path>     Codex CLI SQLite database. Default: auto-detect from $CODEX_HOME or ~/.codex
   --topic <name>        Manually tag every parsed prompt in this session with the given topic

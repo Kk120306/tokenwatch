@@ -16,6 +16,7 @@ interface DetectOptions {
   defaultCodexHome?: string;
   defaultClaudeHome?: string;
   codexDbPath?: string;
+  codexSessionPath?: string;
   claudeGlob?: string;
 }
 
@@ -56,6 +57,14 @@ export function detectCodexStorage(options: DetectOptions = {}): CodexStorageRes
     }
   }
 
+  if (options.codexSessionPath) {
+    const explicit = detectCodexSessionPath(options.codexSessionPath, "--session", warnings);
+    if (explicit) {
+      return explicit;
+    }
+    return missingStorage("codex", `no readable Codex session found at --session (${options.codexSessionPath})`, warnings);
+  }
+
   for (const base of bases) {
     const stateSqlite = detectCodexStateSqlite(join(base.path, "state_5.sqlite"), `${base.label}/state_5.sqlite`, warnings);
     if (stateSqlite) {
@@ -86,6 +95,26 @@ export function detectCodexStorage(options: DetectOptions = {}): CodexStorageRes
   }
 
   return missingStorage("codex", CODEX_MISSING_DETAIL, warnings);
+}
+
+function detectCodexSessionPath(
+  path: string,
+  detail: string,
+  warnings: string[]
+): CodexStorageResult | null {
+  if (basename(path) === "state_5.sqlite") {
+    return detectCodexStateSqlite(path, detail, warnings);
+  }
+  if (basename(path).endsWith(".sqlite")) {
+    return detectCodexSqlite(path, detail, warnings);
+  }
+  if (path.endsWith(".jsonl") && isReadableFile(path)) {
+    return foundStorage("codex", "jsonl", path, [path], detail, warnings);
+  }
+  if ((path.endsWith(".log") || path.endsWith(".jsonl")) && isReadableFile(path)) {
+    return foundStorage("codex", "log", path, [path], detail, warnings);
+  }
+  return null;
 }
 
 export function detectClaudeStorage(options: DetectOptions = {}): ClaudeStorageResult {

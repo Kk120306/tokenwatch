@@ -158,6 +158,29 @@ test("Codex detector prefers readable valid SQLite", async () => {
   }
 });
 
+test("Codex detector accepts an explicit rollout session path", async () => {
+  const home = await makeTempDir();
+  try {
+    const rolloutPath = join(home, ".codex", "sessions", "2026", "05", "18", "rollout-test.jsonl");
+    await mkdir(join(home, ".codex", "sessions", "2026", "05", "18"), { recursive: true });
+    await writeFile(rolloutPath, "{}\n", "utf8");
+
+    const result = detectCodexStorage({
+      codexSessionPath: rolloutPath,
+      codexHome: join(home, "missing"),
+      defaultCodexHome: join(home, "missing-default")
+    });
+
+    assert.equal(result.status, "found");
+    assert.equal(result.format, "jsonl");
+    assert.equal(result.path, rolloutPath);
+    assert.deepEqual(result.paths, [rolloutPath]);
+    assert.equal(result.detail, "--session");
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
 test("Codex detector falls back to session JSONL when SQLite schema is unexpected", async () => {
   const home = await makeTempDir();
   try {

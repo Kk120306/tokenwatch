@@ -19,6 +19,12 @@
 - Active session detection chooses the candidate with the newest `mtimeMs`.
 - Missing or non-file paths are ignored by path inspection.
 - Codex SQLite polling reads only rows newer than the last seen `rowid`, advances past unrelated rows, and preserves pending prompt text across polling intervals.
+- Explicit Codex rollout session paths are accepted as JSONL storage.
+
+## Session Listing Tests
+
+- Session listing renders detected source paths, prompt visibility hints, and watch commands.
+- Session selection infers Claude and Codex paths when unambiguous and requires `--session-source` for ambiguous JSONL paths.
 
 ## Display Tests
 

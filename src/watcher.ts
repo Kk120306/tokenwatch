@@ -108,7 +108,10 @@ export async function startTokenWatcher(
 
     const summary: StorageDetectionSummary = {
       claude: detectClaudeStorage({ claudeGlob: resolvedOptions.claudeGlob }),
-      codex: detectCodexStorage({ codexDbPath: resolvedOptions.codexDbPath })
+      codex: detectCodexStorage({
+        codexDbPath: resolvedOptions.codexDbPath,
+        codexSessionPath: resolvedOptions.codexSessionPath
+      })
     };
 
     if (summary.codex.status === "found") {

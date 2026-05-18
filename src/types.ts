@@ -114,6 +114,7 @@ export interface StorageDetectionSummary {
 export interface WatcherOptions {
   claudeGlob?: string;
   codexDbPath?: string;
+  codexSessionPath?: string;
   pollIntervalMs: number;
   detectionIntervalMs: number;
   onDetection?: (summary: StorageDetectionSummary) => void;

@@ -60,6 +60,10 @@ tokenwatch
 tokenwatch --claude-glob "$HOME/.claude/projects/**/*.jsonl"
 tokenwatch --codex-db "$HOME/.codex/logs_2.sqlite"
 
+# List and select detected sessions
+tokenwatch sessions
+tokenwatch --session "$HOME/.codex/sessions/2026/05/18/rollout.jsonl" --session-source codex
+
 # Tag every prompt in the current run
 tokenwatch --topic documentation
 
@@ -112,6 +116,7 @@ tokenwatch export --csv
 
 ```sh
 tokenwatch [options]
+tokenwatch sessions
 tokenwatch export [export-options]
 ```
 
@@ -120,6 +125,9 @@ tokenwatch export [export-options]
 
 | Option                     | Description                                                                              |
 | -------------------------- | ---------------------------------------------------------------------------------------- |
+| `sessions`                 | List detected local Claude Code and Codex CLI session paths.                             |
+| `--session <path>`         | Watch a specific JSONL, log, or SQLite session path.                                     |
+| `--session-source <source>`| Source for ambiguous `--session` JSONL paths: `claude` or `codex`.                       |
 | `--claude-glob <glob>`     | Claude Code JSONL glob. Defaults to auto-detection from `$CLAUDE_HOME` or `~/.claude`.   |
 | `--codex-db <path>`        | Codex SQLite database path. Defaults to auto-detection from `$CODEX_HOME` or `~/.codex`. |
 | `--topic <name>`           | Manually tag every parsed prompt in the session.                                         |
