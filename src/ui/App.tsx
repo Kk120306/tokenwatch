@@ -59,7 +59,8 @@ interface FilterOverlayState {
 
 const BAR_WIDTH = 44;
 const STALE_AFTER_MS = 30_000;
-const SHORTCUTS = "[1] Prompts  [2] Models  [3] Stats  [r] Recs  [g] Cache sort  [w] Context sort  [f] Models  [t] Topics  [c] Tokens  [q] Quit";
+const FULL_SHORTCUTS = "[1] Prompts  [2] Models  [3] Stats  [r] Recs  [g] Cache sort  [w] Context sort  [f] Models  [t] Topics  [c] Tokens  [q] Quit";
+const COMPACT_SHORTCUTS = "[1] Prompts  [2] Models  [3] Stats  [f/t] Filters  [c] Tokens  [q] Quit";
 const LOGO = `
   ████████╗ ██████╗ ██╗  ██╗███████╗███╗  ██╗
      ██╔══╝██╔═══██╗██║ ██╔╝██╔════╝████╗ ██║
@@ -208,6 +209,17 @@ export default function App({
   const liveColor = stale ? "gray" : "green";
   const liveDim = stale || !isLive;
   const budgetEnabled = hasBudget(budgetConfig);
+  const filteredCostUsd = filteredTurns.reduce((total, turn) => total + turn.costUsd, 0);
+  const footerStatus = formatFooterStatus({
+    activeView,
+    visiblePrompts: activeView === "prompts" ? visibleTurns.length : filteredTurns.length,
+    totalPrompts: turns.length,
+    totalCostUsd: filteredCostUsd,
+    promptSortMode,
+    modelFilterCount: filterModels.length,
+    topicFilterCount: filterTopics.length,
+    showTokens
+  });
 
   return (
     <Box flexDirection="column" width={width} height={height} paddingX={1}>
@@ -250,9 +262,9 @@ export default function App({
       {warnings.length > 0 ? (
         <Text color="yellow" wrap="truncate-end">{warnings.at(-1)}</Text>
       ) : (
-        <Text dimColor>{viewLabel(activeView, filterModels.length, filterTopics.length)}</Text>
+        <Text dimColor>{footerStatus}</Text>
       )}
-      <Text inverse>{SHORTCUTS}</Text>
+      <Text inverse>{shortcutLineForWidth(width)}</Text>
     </Box>
   );
 
@@ -371,7 +383,7 @@ function PromptsView({
   showTokens: boolean;
 }): React.JSX.Element {
   if (turns.length === 0) {
-    return <Text dimColor>No prompts match the current filters.</Text>;
+    return <Text dimColor>No prompts match the current filters. Press f or t to adjust filters.</Text>;
   }
 
   return (
@@ -936,8 +948,49 @@ function shortPath(path: string): string {
   return `${homeRelative.slice(0, 17)}...`;
 }
 
-function viewLabel(activeView: ActiveView, modelCount: number, topicCount: number): string {
-  return `View: ${activeView} | active model filters: ${modelCount} | active topic filters: ${topicCount}`;
+interface FooterStatusInput {
+  activeView: ActiveView;
+  visiblePrompts: number;
+  totalPrompts: number;
+  totalCostUsd: number;
+  promptSortMode: PromptSortMode;
+  modelFilterCount: number;
+  topicFilterCount: number;
+  showTokens: boolean;
+}
+
+export function formatFooterStatus({
+  activeView,
+  visiblePrompts,
+  totalPrompts,
+  totalCostUsd,
+  promptSortMode,
+  modelFilterCount,
+  topicFilterCount,
+  showTokens
+}: FooterStatusInput): string {
+  return [
+    `View: ${activeView}`,
+    `prompts: ${visiblePrompts}/${totalPrompts}`,
+    `cost: ~${formatUsd(totalCostUsd)}`,
+    `sort: ${promptSortLabel(promptSortMode)}`,
+    `filters: ${modelFilterCount} models, ${topicFilterCount} topics`,
+    `tokens: ${showTokens ? "shown" : "cost"}`
+  ].join(" | ");
+}
+
+export function shortcutLineForWidth(width: number): string {
+  return width < 120 ? COMPACT_SHORTCUTS : FULL_SHORTCUTS;
+}
+
+function promptSortLabel(sortMode: PromptSortMode): string {
+  if (sortMode === "cacheGrade") {
+    return "cache grade";
+  }
+  if (sortMode === "contextUsage") {
+    return "context";
+  }
+  return "time";
 }
 
 export function selectedFilters(

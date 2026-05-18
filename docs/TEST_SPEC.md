@@ -40,6 +40,8 @@
 - Prompt rows include index, input, cached input, output, cost, and model.
 - Session total rows are dimmed by chalk.
 - Prompt rows over `$0.01` are highlighted yellow.
+- TUI footer status reports visible prompt count, filtered cost, sort mode, filter counts, and token/cost display state.
+- TUI shortcuts switch to compact labels for narrow terminals.
 
 ## CLI Smoke Tests
 

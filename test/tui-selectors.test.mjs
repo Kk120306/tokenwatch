@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { formatDetectionLines, selectedFilters, unselectedFilters } from "../dist/ui/App.js";
+import { formatDetectionLines, formatFooterStatus, selectedFilters, shortcutLineForWidth, unselectedFilters } from "../dist/ui/App.js";
 import { filterTurns, normalizeModel, recommendModel, summarizeModels, summarizeStats, uniqueModels } from "../dist/ui/selectors.js";
 
 const turns = [
@@ -105,6 +105,22 @@ test("TUI onboarding diagnostics explain missing, waiting, and found sources", (
     "  ✓  Codex CLI     /tmp/logs_2.sqlite   sqlite",
     "     Usage is available; prompt text is best-effort from nearby user-message telemetry."
   ]);
+});
+
+test("TUI footer status and shortcuts stay useful in narrow terminals", () => {
+  assert.equal(formatFooterStatus({
+    activeView: "prompts",
+    visiblePrompts: 2,
+    totalPrompts: 3,
+    totalCostUsd: 0.052,
+    promptSortMode: "cacheGrade",
+    modelFilterCount: 2,
+    topicFilterCount: 3,
+    showTokens: false
+  }), "View: prompts | prompts: 2/3 | cost: ~$0.05 | sort: cache grade | filters: 2 models, 3 topics | tokens: cost");
+  assert.match(shortcutLineForWidth(80), /\[f\/t\] Filters/);
+  assert.doesNotMatch(shortcutLineForWidth(80), /Cache sort/);
+  assert.match(shortcutLineForWidth(140), /Cache sort/);
 });
 
 test("TUI prompts stay flat by timestamp and model rendering falls back to unknown", () => {
