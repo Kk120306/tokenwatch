@@ -123,7 +123,7 @@ export function createDoctorReport(input: DoctorInput): DoctorReport {
       promptVisibility: promptVisibilityData(input.candidates),
       config: input.config,
       pricing: input.pricing,
-      suggestedCommands: suggested.map((candidate) => `tokenwatch --session "${candidate.path}" --session-source ${candidate.source}`),
+      suggestedCommands: suggested.map((candidate) => candidate.watchCommand),
       warnings
     }
   };
@@ -288,7 +288,7 @@ function suggestedCommandLines(candidates: readonly SessionCandidate[]): string[
     ];
   }
 
-  return candidates.map((candidate) => `- tokenwatch --session "${candidate.path}" --session-source ${candidate.source}`);
+  return candidates.map((candidate) => `- ${candidate.watchCommand}`);
 }
 
 function warningLines(warnings: readonly string[]): string[] {

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createDoctorReport } from "../dist/doctor.js";
-import { collectSessionCandidates, renderSessionList, renderSessionListJson, resolveSessionSelection } from "../dist/sessions.js";
+import { collectSessionCandidates, renderSessionCommands, renderSessionList, renderSessionListJson, resolveSessionSelection } from "../dist/sessions.js";
 
 const summary = {
   claude: {
@@ -35,15 +35,41 @@ test("session listing renders detected source paths and watch commands", () => {
   const output = renderSessionList(summary);
   assert.match(output, /Detected tokenwatch sessions:/);
   assert.match(output, /1\. claude jsonl active  \/tmp\/claude\/projects\/session\.jsonl/);
-  assert.match(output, /watch: tokenwatch --session "\/tmp\/claude\/projects\/session\.jsonl" --session-source claude/);
+  assert.match(output, /watch: tokenwatch --session '\/tmp\/claude\/projects\/session\.jsonl' --session-source claude/);
+  assert.match(output, /export: tokenwatch export --md --csv --session '\/tmp\/claude\/projects\/session\.jsonl' --session-source claude/);
   assert.match(output, /2\. codex sqlite active  \/tmp\/codex\/logs_2\.sqlite/);
   assert.match(output, /Warnings:\n- schema fallback warning/);
+
+  assert.equal(renderSessionCommands(summary), [
+    "tokenwatch --session '/tmp/claude/projects/session.jsonl' --session-source claude",
+    "tokenwatch --session '/tmp/codex/logs_2.sqlite' --session-source codex"
+  ].join("\n") + "\n");
 
   const json = JSON.parse(renderSessionListJson(summary));
   assert.equal(json.sessions.length, 2);
   assert.equal(json.sessions[0].source, "claude");
+  assert.equal(json.sessions[0].watchCommand, "tokenwatch --session '/tmp/claude/projects/session.jsonl' --session-source claude");
+  assert.equal(json.sessions[0].exportCommand, "tokenwatch export --md --csv --session '/tmp/claude/projects/session.jsonl' --session-source claude");
   assert.equal(json.sessions[1].format, "sqlite");
   assert.deepEqual(json.warnings, ["schema fallback warning"]);
+
+  const quoted = collectSessionCandidates({
+    claude: {
+      ...summary.claude,
+      path: "/tmp/claude/o'hara.jsonl",
+      paths: ["/tmp/claude/o'hara.jsonl"]
+    },
+    codex: {
+      ...summary.codex,
+      status: "missing",
+      format: "none",
+      path: null,
+      paths: [],
+      detail: "not detected",
+      warnings: []
+    }
+  });
+  assert.equal(quoted[0].watchCommand, "tokenwatch --session '/tmp/claude/o'\\''hara.jsonl' --session-source claude");
 });
 
 test("session selection resolves explicit and inferred sources", () => {
@@ -95,7 +121,7 @@ test("doctor report validates ready, degraded, missing, and config-error setup s
   assert.match(ready.text, /tokenwatch doctor/);
   assert.match(ready.text, /Storage:\n- Claude Code: found jsonl/);
   assert.match(ready.text, /- Codex CLI: found sqlite/);
-  assert.match(ready.text, /tokenwatch --session "\/tmp\/codex\/logs_2\.sqlite" --session-source codex/);
+  assert.match(ready.text, /tokenwatch --session '\/tmp\/codex\/logs_2\.sqlite' --session-source codex/);
 
   const degraded = createDoctorReport({
     summary,

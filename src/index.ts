@@ -11,7 +11,7 @@ import { runExport } from "./export/runner.js";
 import { runInit } from "./init.js";
 import { loadPricing, renderPricingInfo } from "./pricing.js";
 import { redactParsedTurnPrompt } from "./privacy.js";
-import { detectSessionSummary, renderSessionList, renderSessionListJson, resolveSessionSelection } from "./sessions.js";
+import { detectSessionSummary, renderSessionCommands, renderSessionList, renderSessionListJson, resolveSessionSelection } from "./sessions.js";
 import { createParsedTurn } from "./turns.js";
 import App from "./ui/App.js";
 import { DEFAULT_WATCHER_OPTIONS, startTokenWatcher, type TokenWatcher } from "./watcher.js";
@@ -43,12 +43,22 @@ async function main(argv: readonly string[]): Promise<void> {
       printSessionsHelp();
       return;
     }
-    if (sessionArgs.length > 1 || (sessionArgs.length === 1 && sessionArgs[0] !== "--json")) {
-      throw new Error(`Unknown sessions argument: ${sessionArgs.find((arg) => arg !== "--json") ?? sessionArgs[0]}`);
+    const allowedArgs = new Set(["--json", "--commands"]);
+    const unknownArg = sessionArgs.find((arg) => !allowedArgs.has(arg));
+    if (unknownArg || sessionArgs.length > 1) {
+      throw new Error(`Unknown sessions argument: ${unknownArg ?? sessionArgs[0]}`);
     }
-    console.log((sessionArgs[0] === "--json"
-      ? renderSessionListJson(detectSessionSummary())
-      : renderSessionList(detectSessionSummary())).trimEnd());
+    const summary = detectSessionSummary();
+    const output = sessionArgs[0] === "--json"
+      ? renderSessionListJson(summary)
+      : sessionArgs[0] === "--commands"
+        ? renderSessionCommands(summary)
+        : renderSessionList(summary);
+    if (sessionArgs[0] === "--commands") {
+      process.stdout.write(output);
+    } else {
+      console.log(output.trimEnd());
+    }
     return;
   }
   if (argv[0] === "pricing") {
@@ -321,7 +331,7 @@ function printHelp(): void {
 Usage:
   tokenwatch export [--md] [--csv] [--json] [--redact-prompts] [--session <path>] [--session-source <claude|codex>] [--out <dir>]
   tokenwatch init [--redact-prompts] [--daily-budget <amount>] [--weekly-budget <amount>] [--monthly-budget <amount>]
-  tokenwatch sessions [--json]
+  tokenwatch sessions [--json|--commands]
   tokenwatch doctor [--json]
   tokenwatch pricing
   tokenwatch [--session <path>] [--session-source <claude|codex>] [--claude-glob <glob>] [--codex-db <path>] [--topic <name>] [--redact-prompts] [--daily-budget <amount>] [--weekly-budget <amount>] [--monthly-budget <amount>]
@@ -332,6 +342,7 @@ Options:
   sessions             List detected local Claude Code and Codex CLI sessions
   doctor               Validate local log discovery, config, pricing freshness, and suggested commands
   pricing              Show bundled pricing freshness, sources, and model rates
+  --commands           With sessions, print only copyable watch commands
   --md                 With export, include the Markdown report
   --csv                With export, include the CSV report
   --json               With export, write a structured JSON report
@@ -359,10 +370,11 @@ function printSessionsHelp(): void {
   console.log(`tokenwatch sessions
 
 Usage:
-  tokenwatch sessions [--json]
+  tokenwatch sessions [--json|--commands]
 
 Options:
   --json       Print machine-readable detected session data
+  --commands   Print only copyable tokenwatch watch commands
   -h, --help   Show this help.
 `);
 }

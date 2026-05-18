@@ -68,6 +68,7 @@ tokenwatch doctor
 tokenwatch doctor --json
 tokenwatch sessions
 tokenwatch sessions --json
+tokenwatch sessions --commands
 tokenwatch --session "$HOME/.codex/sessions/2026/05/18/rollout.jsonl" --session-source codex
 
 # Tag every prompt in the current run
@@ -130,7 +131,7 @@ tokenwatch export --csv
 ```sh
 tokenwatch [options]
 tokenwatch init
-tokenwatch sessions [--json]
+tokenwatch sessions [--json|--commands]
 tokenwatch doctor [--json]
 tokenwatch pricing
 tokenwatch export [export-options]
@@ -142,7 +143,7 @@ tokenwatch export [export-options]
 | Option                     | Description                                                                              |
 | -------------------------- | ---------------------------------------------------------------------------------------- |
 | `init`, `setup`            | Create or update `~/.tokenwatch/config.json` for first-run defaults.                     |
-| `sessions`                 | List detected local Claude Code and Codex CLI session paths; add `--json` for scripts.   |
+| `sessions`                 | List detected local Claude Code and Codex CLI session paths; add `--json` for scripts or `--commands` for active copyable watch commands. |
 | `doctor`                   | Validate local log discovery, config, pricing freshness, and suggested commands; add `--json` for scripts. |
 | `pricing`                  | Show bundled pricing freshness, source URLs, and model rates.                            |
 | `--session <path>`         | Watch a specific JSONL, log, or SQLite session path.                                     |

@@ -9,6 +9,8 @@ export interface SessionCandidate {
   path: string;
   active: boolean;
   promptVisibility: string;
+  watchCommand: string;
+  exportCommand: string;
 }
 
 export interface SessionSelection {
@@ -53,7 +55,8 @@ export function renderSessionList(summary: StorageDetectionSummary): string {
         `${index + 1}. ${candidate.source} ${candidate.format}${active}  ${displayPath(candidate.path)}`
       );
       lines.push(`   ${candidate.promptVisibility}`);
-      lines.push(`   watch: tokenwatch --session "${candidate.path}" --session-source ${candidate.source}`);
+      lines.push(`   watch: ${candidate.watchCommand}`);
+      lines.push(`   export: ${candidate.exportCommand}`);
     }
   }
 
@@ -67,6 +70,16 @@ export function renderSessionList(summary: StorageDetectionSummary): string {
   }
 
   return `${lines.join("\n")}\n`;
+}
+
+export function renderSessionCommands(summary: StorageDetectionSummary): string {
+  const candidates = collectSessionCandidates(summary);
+  const active = candidates.filter((candidate) => candidate.active);
+  const selected = active.length > 0 ? active : candidates;
+  if (selected.length === 0) {
+    return "";
+  }
+  return `${selected.map((candidate) => candidate.watchCommand).join("\n")}\n`;
 }
 
 export function createSessionListReport(summary: StorageDetectionSummary): SessionListReport {
@@ -114,8 +127,18 @@ function candidatesFromStorage(result: StorageResult): SessionCandidate[] {
     format: result.format,
     path,
     active: path === result.path || path === result.paths[0],
-    promptVisibility: promptVisibilityFor(result)
+    promptVisibility: promptVisibilityFor(result),
+    watchCommand: commandFor("tokenwatch", path, result.source),
+    exportCommand: commandFor("tokenwatch export --md --csv", path, result.source)
   }));
+}
+
+function commandFor(prefix: string, path: string, source: SessionSource): string {
+  return `${prefix} --session ${shellQuote(path)} --session-source ${source}`;
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
 }
 
 function promptVisibilityFor(result: StorageResult): string {

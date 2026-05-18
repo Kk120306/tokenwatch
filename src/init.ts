@@ -128,7 +128,7 @@ function renderInitReport(
     "Next:",
     "- Run tokenwatch doctor to verify prompt visibility and pricing freshness.",
     suggested.length > 0
-      ? `- Start watching: tokenwatch --session "${suggested[0]?.path}" --session-source ${suggested[0]?.source}`
+      ? `- Start watching: ${suggested[0]?.watchCommand}`
       : "- Start Claude Code or Codex CLI, send one prompt, then run tokenwatch doctor again."
   ];
 

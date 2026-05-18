@@ -35,7 +35,7 @@
 
 ## Session Listing Tests
 
-- Session listing renders detected source paths, prompt visibility hints, and watch commands.
+- Session listing renders detected source paths, prompt visibility hints, shell-safe watch commands, export commands, and command-only output.
 - Session JSON output exposes detected sources, sessions, and warnings for scripts.
 - Session selection infers Claude and Codex paths when unambiguous and requires `--session-source` for ambiguous JSONL paths.
 - Doctor diagnostics report readiness, degraded discovery warnings, missing sources, config errors, prompt visibility, pricing freshness, suggested watch commands, and equivalent JSON diagnostics.
