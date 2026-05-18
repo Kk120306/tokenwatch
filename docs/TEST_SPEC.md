@@ -34,6 +34,7 @@
 
 - Session listing renders detected source paths, prompt visibility hints, and watch commands.
 - Session selection infers Claude and Codex paths when unambiguous and requires `--session-source` for ambiguous JSONL paths.
+- Doctor diagnostics report readiness, degraded discovery warnings, missing sources, config errors, prompt visibility, pricing freshness, and suggested watch commands.
 
 ## Display Tests
 
@@ -47,6 +48,7 @@
 
 - Build succeeds with `tsc`.
 - `node dist/index.js --help` prints usage.
+- `node dist/index.js doctor` prints local setup diagnostics without mutating source logs.
 - `npm test` passes.
 
 ## Export Tests
