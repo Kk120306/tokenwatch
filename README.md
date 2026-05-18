@@ -4,7 +4,7 @@
   <img src="Preview.png" alt="tokenwatch preview" width="900">
 </p>
 
-`tokenwatch` is a local-first TypeScript terminal companion for coding agent sessions. It detects supported local session storage, renders a live Ink dashboard, tracks budgets, and exports Markdown or CSV reports without calling a network pricing API.
+`tokenwatch` is a local-first TypeScript terminal companion for coding agent sessions. It detects supported local session storage, renders a live Ink dashboard, tracks budgets, and exports Markdown, CSV, or JSON reports without calling a network pricing API.
 
 ## Supported Sources
 
@@ -117,6 +117,7 @@ tokenwatch export --csv
 ```sh
 tokenwatch [options]
 tokenwatch sessions
+tokenwatch pricing
 tokenwatch export [export-options]
 ```
 
@@ -126,6 +127,7 @@ tokenwatch export [export-options]
 | Option                     | Description                                                                              |
 | -------------------------- | ---------------------------------------------------------------------------------------- |
 | `sessions`                 | List detected local Claude Code and Codex CLI session paths.                             |
+| `pricing`                  | Show bundled pricing freshness, source URLs, and model rates.                            |
 | `--session <path>`         | Watch a specific JSONL, log, or SQLite session path.                                     |
 | `--session-source <source>`| Source for ambiguous `--session` JSONL paths: `claude` or `codex`.                       |
 | `--claude-glob <glob>`     | Claude Code JSONL glob. Defaults to auto-detection from `$CLAUDE_HOME` or `~/.claude`.   |
@@ -202,18 +204,24 @@ JSON reports include the same prompt-level data in a stable `schemaVersion: 1` s
 
 ## Pricing
 
-Pricing is bundled in `pricing.json` and keyed by model name. Unknown models still render, but their estimated cost is `$0.0000` until pricing is added.
+Pricing is bundled in `pricing.json` and keyed by model name. Unknown models still render, but their estimated cost is `$0.0000` until pricing is added. Run `tokenwatch pricing` to see when the bundled rates were verified, the official source URLs, and whether the local table is older than the freshness window.
 
 Bundled model keys include:
 
+- `claude-opus-4-7`
 - `claude-opus-4-6`
 - `claude-sonnet-4-6`
+- `claude-sonnet-4-5`
 - `claude-haiku-4-5`
 - `gpt-5.5`
 - `gpt-5.4`
 - `gpt-5.4-mini`
+- `gpt-5.2`
+- `gpt-5.1`
 - `gpt-5`
 - `gpt-5-mini`
+- `gpt-5.2-codex`
+- `gpt-5.1-codex`
 - `codex-mini-latest`
 
 ## Data and Privacy

@@ -7,7 +7,7 @@ import { render, type Instance } from "ink";
 import { addSpend, loadSpend, resetSpend, type SpendRecord } from "./budget.js";
 import { hasBudget, loadConfig, type TokenwatchConfig } from "./config.js";
 import { runExport } from "./export/runner.js";
-import { loadPricing } from "./pricing.js";
+import { loadPricing, renderPricingInfo } from "./pricing.js";
 import { detectSessionSummary, renderSessionList, resolveSessionSelection } from "./sessions.js";
 import { createParsedTurn } from "./turns.js";
 import App from "./ui/App.js";
@@ -34,6 +34,10 @@ async function main(argv: readonly string[]): Promise<void> {
   }
   if (argv[0] === "sessions") {
     console.log(renderSessionList(detectSessionSummary()).trimEnd());
+    return;
+  }
+  if (argv[0] === "pricing") {
+    console.log(renderPricingInfo(loadPricing()).trimEnd());
     return;
   }
 
@@ -280,11 +284,13 @@ function printHelp(): void {
 Usage:
   tokenwatch export [--md] [--csv] [--json] [--session <path>] [--session-source <claude|codex>] [--out <dir>]
   tokenwatch sessions
+  tokenwatch pricing
   tokenwatch [--session <path>] [--session-source <claude|codex>] [--claude-glob <glob>] [--codex-db <path>] [--topic <name>] [--daily-budget <amount>] [--weekly-budget <amount>]
 
 Options:
   export               Write Markdown, CSV, and/or JSON reports without launching the TUI
   sessions             List detected local Claude Code and Codex CLI sessions
+  pricing              Show bundled pricing freshness, sources, and model rates
   --md                 With export, include the Markdown report
   --csv                With export, include the CSV report
   --json               With export, write a structured JSON report

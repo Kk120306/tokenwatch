@@ -6,7 +6,7 @@ import Database from "better-sqlite3";
 import test from "node:test";
 import { addToTotal, createEmptyTotal, formatSessionTotal, formatTurn } from "../dist/display.js";
 import { createCodexSqliteParser } from "../dist/parsers/codex.js";
-import { estimateCostUsd, loadPricing } from "../dist/pricing.js";
+import { estimateCostUsd, getPricingFreshness, loadPricing, renderPricingInfo } from "../dist/pricing.js";
 import { findMostRecentSessionFile, getLatestCodexRowId, inspectPath, readCodexTurnsSince, startTokenWatcher } from "../dist/watcher.js";
 
 test("pricing estimates known models and falls back to zero for unknown models", () => {
@@ -36,6 +36,44 @@ test("bundled pricing includes current Codex GPT model rates", () => {
     outputTokens: 1000,
     reasoningTokens: 0
   }, pricing), 0.03525);
+  assert.equal(estimateCostUsd("codex-mini-latest", {
+    inputTokens: 1_000_000,
+    cachedInputTokens: 1_000_000,
+    outputTokens: 1_000_000,
+    reasoningTokens: 0
+  }, pricing), 7.875);
+  assert.equal(estimateCostUsd("claude-opus-4-6", {
+    inputTokens: 1_000_000,
+    cachedInputTokens: 1_000_000,
+    outputTokens: 1_000_000,
+    reasoningTokens: 0
+  }, pricing), 30.5);
+});
+
+test("pricing freshness reports source verification age and stale status", () => {
+  assert.deepEqual(getPricingFreshness(new Date("2026-05-18T12:00:00.000Z")), {
+    verifiedAt: "2026-05-18",
+    ageDays: 0,
+    staleAfterDays: 90,
+    stale: false,
+    sources: [
+      "https://openai.com/api/pricing/",
+      "https://platform.openai.com/docs/pricing",
+      "https://platform.claude.com/docs/en/about-claude/pricing"
+    ]
+  });
+  assert.equal(getPricingFreshness(new Date("2026-08-17T00:00:00.000Z")).stale, true);
+
+  const output = renderPricingInfo({
+    "gpt-5": {
+      inputPerMillion: 1.25,
+      cachedInputPerMillion: 0.125,
+      outputPerMillion: 10
+    }
+  }, new Date("2026-05-18T12:00:00.000Z"));
+  assert.match(output, /Status: fresh \(0 days old; stale after 90 days\)/);
+  assert.match(output, /https:\/\/openai\.com\/api\/pricing\//);
+  assert.match(output, /gpt-5: input \$1.25 \/ cached \$0.125 \/ output \$10.00 per 1M tokens/);
 });
 
 test("display formats prompt rows and totals", () => {

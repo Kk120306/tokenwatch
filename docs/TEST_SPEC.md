@@ -19,6 +19,8 @@
 
 - Known model cost equals input, cached input, and output pricing per million tokens.
 - Unknown model cost returns `0`.
+- Bundled pricing includes verified current OpenAI Codex and Claude model rates.
+- Pricing freshness reports verification date, source URLs, and stale status.
 
 ## Watcher Tests
 
