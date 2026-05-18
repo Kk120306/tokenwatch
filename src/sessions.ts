@@ -18,6 +18,12 @@ export interface SessionSelection {
   codexSessionPath?: string;
 }
 
+interface SessionListReport {
+  sources: StorageDetectionSummary;
+  sessions: SessionCandidate[];
+  warnings: string[];
+}
+
 export function detectSessionSummary(): StorageDetectionSummary {
   return {
     claude: detectClaudeStorage(),
@@ -61,6 +67,18 @@ export function renderSessionList(summary: StorageDetectionSummary): string {
   }
 
   return `${lines.join("\n")}\n`;
+}
+
+export function createSessionListReport(summary: StorageDetectionSummary): SessionListReport {
+  return {
+    sources: summary,
+    sessions: collectSessionCandidates(summary),
+    warnings: [...summary.claude.warnings, ...summary.codex.warnings]
+  };
+}
+
+export function renderSessionListJson(summary: StorageDetectionSummary): string {
+  return `${JSON.stringify(createSessionListReport(summary), null, 2)}\n`;
 }
 
 export function resolveSessionSelection(

@@ -25,15 +25,49 @@ interface DoctorInput {
   env: NodeJS.ProcessEnv;
 }
 
+interface DoctorJsonReport {
+  status: DoctorStatus;
+  exitCode: number;
+  version: string;
+  nodeVersion: string;
+  environment: {
+    CODEX_HOME: string | null;
+    CLAUDE_HOME: string | null;
+  };
+  storage: StorageDetectionSummary;
+  promptVisibility: Array<{
+    source: SessionCandidate["source"];
+    format: SessionCandidate["format"];
+    sessions: number;
+    activeSessions: number;
+    detail: string;
+  }>;
+  config: ConfigDiagnostics;
+  pricing: PricingFreshness;
+  suggestedCommands: string[];
+  warnings: string[];
+}
+
 export interface DoctorReport {
   status: DoctorStatus;
   exitCode: number;
   text: string;
+  json: DoctorJsonReport;
 }
 
-export function runDoctor(version = "0.0.0"): void {
+interface DoctorArgs {
+  help: boolean;
+  json: boolean;
+}
+
+export function runDoctor(argv: readonly string[] = [], version = "0.0.0"): void {
+  const args = parseDoctorArgs(argv);
+  if (args.help) {
+    printDoctorHelp();
+    return;
+  }
   const report = createDoctorReport(createDoctorInput(version));
-  console.log(report.text.trimEnd());
+  console.log(args.json ? JSON.stringify(report.json, null, 2) : report.text.trimEnd());
   process.exitCode = report.exitCode;
 }
 
@@ -75,8 +109,40 @@ export function createDoctorReport(input: DoctorInput): DoctorReport {
   return {
     status,
     exitCode,
-    text: `${lines.join("\n")}\n`
+    text: `${lines.join("\n")}\n`,
+    json: {
+      status,
+      exitCode,
+      version: input.version,
+      nodeVersion: input.nodeVersion,
+      environment: {
+        CODEX_HOME: envValue(input.env.CODEX_HOME),
+        CLAUDE_HOME: envValue(input.env.CLAUDE_HOME)
+      },
+      storage: input.summary,
+      promptVisibility: promptVisibilityData(input.candidates),
+      config: input.config,
+      pricing: input.pricing,
+      suggestedCommands: suggested.map((candidate) => `tokenwatch --session "${candidate.path}" --session-source ${candidate.source}`),
+      warnings
+    }
   };
+}
+
+function parseDoctorArgs(argv: readonly string[]): DoctorArgs {
+  const args: DoctorArgs = { help: false, json: false };
+  for (const arg of argv) {
+    if (arg === "--help" || arg === "-h") {
+      args.help = true;
+      continue;
+    }
+    if (arg === "--json") {
+      args.json = true;
+      continue;
+    }
+    throw new Error(`Unknown doctor argument: ${arg}`);
+  }
+  return args;
 }
 
 function createDoctorInput(version: string): DoctorInput {
@@ -184,6 +250,24 @@ function promptVisibilityLines(candidates: readonly SessionCandidate[]): string[
   });
 }
 
+function promptVisibilityData(candidates: readonly SessionCandidate[]): DoctorJsonReport["promptVisibility"] {
+  const groups = new Map<string, { candidate: SessionCandidate; count: number; activeCount: number }>();
+  for (const candidate of candidates) {
+    const key = `${candidate.source}:${candidate.format}:${candidate.promptVisibility}`;
+    const existing = groups.get(key) ?? { candidate, count: 0, activeCount: 0 };
+    existing.count += 1;
+    existing.activeCount += candidate.active ? 1 : 0;
+    groups.set(key, existing);
+  }
+  return [...groups.values()].map(({ candidate, count, activeCount }) => ({
+    source: candidate.source,
+    format: candidate.format,
+    sessions: count,
+    activeSessions: activeCount,
+    detail: candidate.promptVisibility
+  }));
+}
+
 function configLines(config: ConfigDiagnostics): string[] {
   return [
     `- Path: ${displayPath(config.path)}`,
@@ -221,6 +305,23 @@ function warningLines(warnings: readonly string[]): string[] {
 function envHomeLine(value: string | undefined, defaultDir: ".codex" | ".claude"): string {
   const normalized = value?.trim();
   return normalized ? `${normalized} (set)` : `not set; default ${displayPath(join(homedir(), defaultDir))}`;
+}
+
+function envValue(value: string | undefined): string | null {
+  const normalized = value?.trim();
+  return normalized ? normalized : null;
+}
+
+function printDoctorHelp(): void {
+  console.log(`tokenwatch doctor
+
+Usage:
+  tokenwatch doctor [--json]
+
+Options:
+  --json       Print machine-readable setup diagnostics
+  -h, --help   Show this help.
+`);
 }
 
 function displayPath(path: string): string {

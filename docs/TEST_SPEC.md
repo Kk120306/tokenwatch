@@ -34,8 +34,9 @@
 ## Session Listing Tests
 
 - Session listing renders detected source paths, prompt visibility hints, and watch commands.
+- Session JSON output exposes detected sources, sessions, and warnings for scripts.
 - Session selection infers Claude and Codex paths when unambiguous and requires `--session-source` for ambiguous JSONL paths.
-- Doctor diagnostics report readiness, degraded discovery warnings, missing sources, config errors, prompt visibility, pricing freshness, and suggested watch commands.
+- Doctor diagnostics report readiness, degraded discovery warnings, missing sources, config errors, prompt visibility, pricing freshness, suggested watch commands, and equivalent JSON diagnostics.
 
 ## Display Tests
 
@@ -50,7 +51,7 @@
 - Build succeeds with `tsc`.
 - `node dist/index.js --help` prints usage.
 - `node dist/index.js init --non-interactive` creates or preserves tokenwatch config defaults.
-- `node dist/index.js doctor` prints local setup diagnostics without mutating source logs.
+- `node dist/index.js doctor` and `node dist/index.js doctor --json` print local setup diagnostics without mutating source logs.
 - `npm test` passes.
 
 ## Export Tests

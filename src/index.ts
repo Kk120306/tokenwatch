@@ -11,7 +11,7 @@ import { runExport } from "./export/runner.js";
 import { runInit } from "./init.js";
 import { loadPricing, renderPricingInfo } from "./pricing.js";
 import { redactParsedTurnPrompt } from "./privacy.js";
-import { detectSessionSummary, renderSessionList, resolveSessionSelection } from "./sessions.js";
+import { detectSessionSummary, renderSessionList, renderSessionListJson, resolveSessionSelection } from "./sessions.js";
 import { createParsedTurn } from "./turns.js";
 import App from "./ui/App.js";
 import { DEFAULT_WATCHER_OPTIONS, startTokenWatcher, type TokenWatcher } from "./watcher.js";
@@ -37,7 +37,17 @@ async function main(argv: readonly string[]): Promise<void> {
     return;
   }
   if (argv[0] === "sessions") {
-    console.log(renderSessionList(detectSessionSummary()).trimEnd());
+    const sessionArgs = argv.slice(1);
+    if (sessionArgs.includes("--help") || sessionArgs.includes("-h")) {
+      printSessionsHelp();
+      return;
+    }
+    if (sessionArgs.length > 1 || (sessionArgs.length === 1 && sessionArgs[0] !== "--json")) {
+      throw new Error(`Unknown sessions argument: ${sessionArgs.find((arg) => arg !== "--json") ?? sessionArgs[0]}`);
+    }
+    console.log((sessionArgs[0] === "--json"
+      ? renderSessionListJson(detectSessionSummary())
+      : renderSessionList(detectSessionSummary())).trimEnd());
     return;
   }
   if (argv[0] === "pricing") {
@@ -45,7 +55,7 @@ async function main(argv: readonly string[]): Promise<void> {
     return;
   }
   if (argv[0] === "doctor") {
-    runDoctor(getPackageVersion());
+    runDoctor(argv.slice(1), getPackageVersion());
     return;
   }
   if (argv[0] === "init" || argv[0] === "setup") {
@@ -304,8 +314,8 @@ function printHelp(): void {
 Usage:
   tokenwatch export [--md] [--csv] [--json] [--redact-prompts] [--session <path>] [--session-source <claude|codex>] [--out <dir>]
   tokenwatch init [--redact-prompts] [--daily-budget <amount>] [--weekly-budget <amount>]
-  tokenwatch sessions
-  tokenwatch doctor
+  tokenwatch sessions [--json]
+  tokenwatch doctor [--json]
   tokenwatch pricing
   tokenwatch [--session <path>] [--session-source <claude|codex>] [--claude-glob <glob>] [--codex-db <path>] [--topic <name>] [--redact-prompts] [--daily-budget <amount>] [--weekly-budget <amount>]
 
@@ -334,6 +344,18 @@ Options:
 Environment:
   CODEX_HOME            Codex home directory to check before ~/.codex
   CLAUDE_HOME           Claude Code home directory to check before ~/.claude
+`);
+}
+
+function printSessionsHelp(): void {
+  console.log(`tokenwatch sessions
+
+Usage:
+  tokenwatch sessions [--json]
+
+Options:
+  --json       Print machine-readable detected session data
+  -h, --help   Show this help.
 `);
 }
 

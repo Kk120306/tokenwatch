@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createDoctorReport } from "../dist/doctor.js";
-import { collectSessionCandidates, renderSessionList, resolveSessionSelection } from "../dist/sessions.js";
+import { collectSessionCandidates, renderSessionList, renderSessionListJson, resolveSessionSelection } from "../dist/sessions.js";
 
 const summary = {
   claude: {
@@ -38,6 +38,12 @@ test("session listing renders detected source paths and watch commands", () => {
   assert.match(output, /watch: tokenwatch --session "\/tmp\/claude\/projects\/session\.jsonl" --session-source claude/);
   assert.match(output, /2\. codex sqlite active  \/tmp\/codex\/logs_2\.sqlite/);
   assert.match(output, /Warnings:\n- schema fallback warning/);
+
+  const json = JSON.parse(renderSessionListJson(summary));
+  assert.equal(json.sessions.length, 2);
+  assert.equal(json.sessions[0].source, "claude");
+  assert.equal(json.sessions[1].format, "sqlite");
+  assert.deepEqual(json.warnings, ["schema fallback warning"]);
 });
 
 test("session selection resolves explicit and inferred sources", () => {
@@ -82,6 +88,10 @@ test("doctor report validates ready, degraded, missing, and config-error setup s
 
   assert.equal(ready.status, "ready");
   assert.equal(ready.exitCode, 0);
+  assert.equal(ready.json.status, "ready");
+  assert.equal(ready.json.exitCode, 0);
+  assert.equal(ready.json.promptVisibility[0].activeSessions, 1);
+  assert.match(ready.json.suggestedCommands[0], /tokenwatch --session/);
   assert.match(ready.text, /tokenwatch doctor/);
   assert.match(ready.text, /Storage:\n- Claude Code: found jsonl/);
   assert.match(ready.text, /- Codex CLI: found sqlite/);
