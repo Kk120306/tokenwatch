@@ -602,6 +602,11 @@ test("Codex JSONL parser still extracts nested response.completed usage", () => 
 test("topic classification and manual override populate ParsedTurn topics", () => {
   assert.equal(classifyPromptTopic("please fix the failing auth bug"), "debugging");
   assert.equal(classifyPromptTopic("explain how token caching works"), "learning");
+  assert.equal(classifyPromptTopic("build a settings page for account admins"), "building");
+  assert.equal(classifyPromptTopic("build a CI pipeline for Docker releases"), "devops");
+  assert.equal(classifyPromptTopic("add tests for parser coverage"), "testing");
+  assert.equal(classifyPromptTopic("write docs for the cache config"), "documentation");
+  assert.equal(classifyPromptTopic("analyze the auth module for regressions"), "review");
   assert.equal(classifyPromptTopic("fix the stripe invoice retry", [
     { topic: "billing", keywords: ["stripe", "invoice"] }
   ]), "billing");
