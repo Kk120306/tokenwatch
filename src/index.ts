@@ -13,6 +13,7 @@ import { loadPricing, runPricing } from "./pricing.js";
 import { redactParsedTurnPrompt } from "./privacy.js";
 import { detectSessionSummary, renderSessionCommands, renderSessionList, renderSessionListJson, resolveSessionSelection } from "./sessions.js";
 import { createParsedTurn } from "./turns.js";
+import { loadUiPreferences, saveUiPreferences, type UiPreferences } from "./ui-preferences.js";
 import App from "./ui/App.js";
 import { DEFAULT_WATCHER_OPTIONS, startTokenWatcher, type TokenWatcher } from "./watcher.js";
 import type { ParsedTurn, PricingTable, SessionSource, StorageDetectionSummary, TokenTurn, WatcherOptions } from "./types.js";
@@ -82,6 +83,7 @@ async function main(argv: readonly string[]): Promise<void> {
 
   const pricing = loadPricing();
   const budgetConfig = applyBudgetOverrides(loadConfig(), args);
+  const uiPreferences = loadUiPreferences();
   let spend = args.resetBudget ? resetSpend() : loadSpend();
   const sessionStart = new Date();
   const version = getPackageVersion();
@@ -98,7 +100,7 @@ async function main(argv: readonly string[]): Promise<void> {
   let closing = false;
 
   const rerender = (): void => {
-    app?.rerender(renderApp(state, pricing, budgetConfig, sessionStart, version, close));
+    app?.rerender(renderApp(state, pricing, budgetConfig, uiPreferences, sessionStart, version, close, saveUiPreferences));
   };
 
   const options: WatcherOptions = {
@@ -122,7 +124,7 @@ async function main(argv: readonly string[]): Promise<void> {
     options.codexSessionPath = selection.codexSessionPath ?? options.codexSessionPath;
   }
 
-  app = render(renderApp(state, pricing, budgetConfig, sessionStart, version, close), {
+  app = render(renderApp(state, pricing, budgetConfig, uiPreferences, sessionStart, version, close, saveUiPreferences), {
     exitOnCtrlC: false,
     patchConsole: false
   });
@@ -183,9 +185,11 @@ function renderApp(
   state: RuntimeState,
   pricing: PricingTable,
   budgetConfig: TokenwatchConfig,
+  uiPreferences: UiPreferences,
   sessionStart: Date,
   version: string,
-  onQuit: () => void
+  onQuit: () => void,
+  onPreferencesChange: (preferences: UiPreferences) => void
 ): React.ReactElement {
   return React.createElement(App, {
     turns: state.turns,
@@ -198,6 +202,8 @@ function renderApp(
     warnings: state.warnings,
     lastTurnReceivedAt: state.lastTurnReceivedAt,
     inputEnabled: process.stdin.isTTY === true && typeof process.stdin.setRawMode === "function",
+    initialPreferences: uiPreferences,
+    onPreferencesChange,
     onQuit
   });
 }

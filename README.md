@@ -278,12 +278,12 @@ tokenwatch is local-first:
 
 - Reads local Claude Code and Codex CLI data.
 - Reads bundled local pricing data.
-- Writes only tokenwatch budget state and optional export files.
+- Writes only tokenwatch budget state, optional TUI preferences, and optional export files.
 - Does not send prompts, paths, token counts, or cost data over the network.
 - Does not modify Claude Code or Codex CLI storage.
 - Can replace prompt text with `[redacted]` in tokenwatch-rendered state and reports with `--redact-prompts` or `redactPromptText`.
 
-Redaction does not edit source Claude Code or Codex CLI logs. Avoid committing private session logs, generated reports with prompt text, files from `~/.claude`, files from `~/.codex`, or files from `~/.tokenwatch`.
+TUI preferences are stored locally in `~/.tokenwatch/ui-state.json` and contain view/filter choices only. Redaction does not edit source Claude Code or Codex CLI logs. Avoid committing private session logs, generated reports with prompt text, files from `~/.claude`, files from `~/.codex`, or files from `~/.tokenwatch`.
 
 ## Documentation
 

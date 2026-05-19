@@ -14,6 +14,7 @@ import { hasBudget, type TokenwatchConfig } from "../config.js";
 import { MIN_RECOMMENDATION_TURNS, modelNickname, recommendModels } from "../recommender.js";
 import type { Recommendation as ModelRecommendation } from "../recommender.js";
 import type { ParsedTurn, PricingTable, StorageDetectionSummary, StorageResult } from "../types.js";
+import type { ActiveView, PromptSortMode, StatsFocus, UiPreferences } from "../ui-preferences.js";
 import {
   filterTurns,
   normalizeModel,
@@ -24,10 +25,7 @@ import {
   uniqueTopics
 } from "./selectors.js";
 
-type ActiveView = "prompts" | "models" | "stats";
 type FilterMode = "models" | "topics";
-type PromptSortMode = "time" | "cacheGrade" | "contextUsage";
-type StatsFocus = "top" | "recommendations";
 
 export interface AppState {
   turns: ParsedTurn[];
@@ -61,6 +59,8 @@ export interface AppProps {
   warnings?: readonly string[];
   lastTurnReceivedAt?: number | null;
   inputEnabled?: boolean;
+  initialPreferences?: Partial<UiPreferences>;
+  onPreferencesChange?: (preferences: UiPreferences) => void;
   onQuit?: () => void;
 }
 
@@ -100,6 +100,8 @@ export default function App({
   warnings = [],
   lastTurnReceivedAt = null,
   inputEnabled,
+  initialPreferences,
+  onPreferencesChange,
   onQuit
 }: AppProps): React.JSX.Element {
   const { exit } = useApp();
@@ -109,16 +111,16 @@ export default function App({
   const height = Math.max(24, stdout.rows ?? 24);
   const availableModels = useMemo(() => uniqueModels(turns), [turns]);
   const availableTopics = useMemo(() => uniqueTopics(turns), [turns]);
-  const [activeView, setActiveView] = useState<ActiveView>("prompts");
-  const [uncheckedModels, setUncheckedModels] = useState<string[]>([]);
-  const [uncheckedTopics, setUncheckedTopics] = useState<string[]>([]);
+  const [activeView, setActiveView] = useState<ActiveView>(initialPreferences?.activeView ?? "prompts");
+  const [uncheckedModels, setUncheckedModels] = useState<string[]>([...(initialPreferences?.uncheckedModels ?? [])]);
+  const [uncheckedTopics, setUncheckedTopics] = useState<string[]>([...(initialPreferences?.uncheckedTopics ?? [])]);
   const [expandedTurnId, setExpandedTurnId] = useState<number | null>(null);
   const [selectedTurnIndex, setSelectedTurnIndex] = useState(0);
-  const [showTokens, setShowTokens] = useState(false);
+  const [showTokens, setShowTokens] = useState(initialPreferences?.showTokens === true);
   const [isLive, setIsLive] = useState(true);
   const [overlay, setOverlay] = useState<FilterOverlayState | null>(null);
-  const [promptSortMode, setPromptSortMode] = useState<PromptSortMode>("time");
-  const [statsFocus, setStatsFocus] = useState<StatsFocus>("top");
+  const [promptSortMode, setPromptSortMode] = useState<PromptSortMode>(initialPreferences?.promptSortMode ?? "time");
+  const [statsFocus, setStatsFocus] = useState<StatsFocus>(initialPreferences?.statsFocus ?? "top");
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -126,6 +128,17 @@ export default function App({
     }, 1000);
     return () => clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    onPreferencesChange?.({
+      activeView,
+      uncheckedModels,
+      uncheckedTopics,
+      showTokens,
+      promptSortMode,
+      statsFocus
+    });
+  }, [activeView, uncheckedModels, uncheckedTopics, onPreferencesChange, promptSortMode, showTokens, statsFocus]);
 
   const filterModels = useMemo(
     () => selectedFilters(availableModels, uncheckedModels),
