@@ -464,6 +464,56 @@ test("Codex state watcher tails startup rollout but reads a new mid-session thre
   }
 });
 
+test("Codex watcher promotes from SQLite fallback to rollout JSONL when state appears", async () => {
+  const originalCodexHome = process.env.CODEX_HOME;
+  const dir = join(tmpdir(), `tokenwatch-codex-promote-${Date.now()}`);
+  const codexHome = join(dir, "codex");
+  const logsPath = join(codexHome, "logs_2.sqlite");
+  const statePath = join(codexHome, "state_5.sqlite");
+  const rolloutPath = join(codexHome, "sessions", "2026", "05", "18", "rollout.jsonl");
+  const turns = [];
+  const logs = [];
+  let watcher;
+
+  try {
+    process.env.CODEX_HOME = codexHome;
+    await mkdir(join(codexHome, "sessions", "2026", "05", "18"), { recursive: true });
+    createEmptyCodexLogs(logsPath);
+
+    watcher = await startTokenWatcher((turn) => turns.push(turn), {
+      claudeGlob: join(dir, "missing-claude.jsonl"),
+      pollIntervalMs: 10,
+      detectionIntervalMs: 25,
+      logger: (message) => logs.push(message)
+    });
+
+    await waitFor(() => logs.includes("tokenwatch: codex → sqlite ✓"));
+
+    await writeFile(
+      rolloutPath,
+      `${codexUserMessageLine("promote to richer rollout prompt text")}\n${codexTokenCountLine(300, 30)}\n`,
+      "utf8"
+    );
+    createCodexState(statePath, rolloutPath, "gpt-5.5");
+
+    await waitFor(() => turns.some((turn) => turn.sourceFormat === "jsonl"));
+    const promotedTurn = turns.find((turn) => turn.sourceFormat === "jsonl");
+    assert.equal(promotedTurn.model, "gpt-5.5");
+    assert.equal(promotedTurn.promptText, "promote to richer rollout prompt text");
+    assert.deepEqual(promotedTurn.usage, {
+      inputTokens: 300,
+      cachedInputTokens: 0,
+      outputTokens: 30,
+      reasoningTokens: 0
+    });
+    assert.ok(logs.includes("tokenwatch: codex → rollout jsonl ✓"));
+  } finally {
+    await watcher?.close();
+    restoreEnv("CODEX_HOME", originalCodexHome);
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 function codexTokenCountLine(inputTokens, outputTokens) {
   return JSON.stringify({
     timestamp: "2026-05-18T00:00:00.000Z",
@@ -501,6 +551,29 @@ function createEmptyCodexLogs(path) {
     );
   `);
   db.close();
+}
+
+function createCodexState(path, rolloutPath, model) {
+  const db = new Database(path);
+  db.exec(`
+    CREATE TABLE threads (
+      id TEXT PRIMARY KEY,
+      rollout_path TEXT,
+      model TEXT,
+      updated_at_ms INTEGER NOT NULL
+    );
+  `);
+  db.prepare("INSERT INTO threads (id, rollout_path, model, updated_at_ms) VALUES (?, ?, ?, ?)")
+    .run("thread-1", rolloutPath, model, Date.now());
+  db.close();
+}
+
+function restoreEnv(name, value) {
+  if (value === undefined) {
+    delete process.env[name];
+  } else {
+    process.env[name] = value;
+  }
 }
 
 async function waitFor(predicate, timeoutMs = 1000) {

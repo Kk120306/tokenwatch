@@ -23,6 +23,7 @@ type LineParser = (line: string) => TokenTurn | null;
 type LineParserFactory = () => LineParser;
 type CodexSqliteRowParser = (row: CodexLogRow) => TokenTurn | null;
 type JsonlInitialReadMode = "tail" | "all";
+type CodexWatchSource = "rollout-jsonl" | "sqlite" | "log" | "none";
 
 const DUPLICATE_TURN_WINDOW_MS = 5000;
 
@@ -86,7 +87,7 @@ export async function startTokenWatcher(
   let codexWatcher: TokenWatcher | null = null;
   let claudeSignature = "";
   let codexSignature = "";
-  let activeCodexSource: "rollout-jsonl" | "sqlite" | "none" = "none";
+  let activeCodexSource: CodexWatchSource = "none";
   let codexStartupAnnouncementDone = false;
   let codexModel: string | undefined;
   let codexGoal: GoalMetadata | null = null;
@@ -147,19 +148,14 @@ export async function startTokenWatcher(
     if (nextCodexSignature !== codexSignature) {
       const candidateSource = codexSourceFrom(summary.codex);
 
-      if (activeCodexSource !== "none" && candidateSource !== "none" && candidateSource !== activeCodexSource) {
-        // Lock to the first Codex source that wins to avoid duplicate turns from re-detection flips.
+      if (!shouldAdoptCodexSource(activeCodexSource, candidateSource)) {
+        // Keep the richer active Codex source to avoid duplicate-prone fallback flips.
       } else {
-        if (!codexStartupAnnouncementDone || (activeCodexSource === "none" && candidateSource !== "none")) {
+        const sourceChanged = activeCodexSource !== candidateSource;
+        if (!codexStartupAnnouncementDone || sourceChanged) {
           activeCodexSource = candidateSource;
           codexStartupAnnouncementDone = true;
-          if (activeCodexSource === "rollout-jsonl") {
-            logger("tokenwatch: codex \u2192 rollout jsonl \u2713");
-          } else if (activeCodexSource === "sqlite") {
-            logger("tokenwatch: codex \u2192 sqlite \u2713");
-          } else {
-            logger("tokenwatch: codex \u2192 waiting for session...");
-          }
+          logger(codexSourceAnnouncement(activeCodexSource));
         }
 
         // Ignore model-only changes to avoid restarting the JSONL reader from byte zero.
@@ -237,11 +233,56 @@ export async function startTokenWatcher(
   }
 }
 
-function codexSourceFrom(result: CodexStorageResult): "rollout-jsonl" | "sqlite" | "none" {
+function codexSourceFrom(result: CodexStorageResult): CodexWatchSource {
   if (result.status !== "found") {
     return "none";
   }
-  return result.format === "sqlite" ? "sqlite" : "rollout-jsonl";
+  if (result.format === "sqlite") {
+    return "sqlite";
+  }
+  if (result.format === "log") {
+    return "log";
+  }
+  return "rollout-jsonl";
+}
+
+function shouldAdoptCodexSource(
+  activeSource: CodexWatchSource,
+  candidateSource: CodexWatchSource
+): boolean {
+  if (activeSource === "none") {
+    return true;
+  }
+  if (candidateSource === "none") {
+    return false;
+  }
+  return codexSourceRank(candidateSource) >= codexSourceRank(activeSource);
+}
+
+function codexSourceRank(source: CodexWatchSource): number {
+  if (source === "rollout-jsonl") {
+    return 3;
+  }
+  if (source === "sqlite") {
+    return 2;
+  }
+  if (source === "log") {
+    return 1;
+  }
+  return 0;
+}
+
+function codexSourceAnnouncement(source: CodexWatchSource): string {
+  if (source === "rollout-jsonl") {
+    return "tokenwatch: codex \u2192 rollout jsonl \u2713";
+  }
+  if (source === "sqlite") {
+    return "tokenwatch: codex \u2192 sqlite \u2713";
+  }
+  if (source === "log") {
+    return "tokenwatch: codex \u2192 log fallback \u2713";
+  }
+  return "tokenwatch: codex \u2192 waiting for session...";
 }
 
 function shouldRestartCodexWatcher(result: CodexStorageResult, previousSignature: string): boolean {
