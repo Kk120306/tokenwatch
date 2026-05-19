@@ -42,6 +42,7 @@ interface CodexGoalRow {
 
 export function detectCodexStorage(options: DetectOptions = {}): CodexStorageResult {
   const warnings: string[] = [];
+  let waitingForCodexSession: CodexStorageResult | null = null;
   const bases = buildBases(
     options.codexHome ?? process.env.CODEX_HOME,
     options.defaultCodexHome ?? join(homedir(), ".codex"),
@@ -68,7 +69,10 @@ export function detectCodexStorage(options: DetectOptions = {}): CodexStorageRes
   for (const base of bases) {
     const stateSqlite = detectCodexStateSqlite(join(base.path, "state_5.sqlite"), `${base.label}/state_5.sqlite`, warnings);
     if (stateSqlite) {
-      return stateSqlite;
+      if (stateSqlite.status === "found") {
+        return stateSqlite;
+      }
+      waitingForCodexSession ??= stateSqlite;
     }
 
     const sqlite = detectCodexSqlite(join(base.path, "logs_2.sqlite"), `${base.label}/logs_2.sqlite`, warnings);
@@ -94,7 +98,7 @@ export function detectCodexStorage(options: DetectOptions = {}): CodexStorageRes
     }
   }
 
-  return missingStorage("codex", CODEX_MISSING_DETAIL, warnings);
+  return waitingForCodexSession ?? missingStorage("codex", CODEX_MISSING_DETAIL, warnings);
 }
 
 function detectCodexSessionPath(
@@ -260,7 +264,7 @@ function readActiveCodexThread(
     const cutoffMs = Date.now() - CODEX_ACTIVE_THREAD_WINDOW_MS;
     const threadColumns = getTableColumns(db, "threads");
     const threadIdSelect = threadColumns.has("id") ? "id AS threadId" : "NULL AS threadId";
-    const row = db
+    const rows = db
       .prepare<[number], CodexThreadRow>(`
         SELECT ${threadIdSelect}, rollout_path AS rolloutPath, model AS model
         FROM threads
@@ -268,25 +272,35 @@ function readActiveCodexThread(
           AND rollout_path != ''
           AND updated_at_ms > ?
         ORDER BY updated_at_ms DESC
-        LIMIT 1
+        LIMIT 20
       `)
-      .get(cutoffMs);
-    if (!row) {
+      .all(cutoffMs);
+    if (rows.length === 0) {
       return { kind: "waiting" };
     }
-    if (!row?.rolloutPath || !isReadableFile(row.rolloutPath)) {
-      warnings.push(`${displayPath(path)}: no readable Codex rollout path in threads.rollout_path; falling back`);
-      return null;
+
+    let skippedUnreadable = 0;
+    for (const row of rows) {
+      if (!row.rolloutPath || !isReadableFile(row.rolloutPath)) {
+        skippedUnreadable += 1;
+        continue;
+      }
+
+      if (skippedUnreadable > 0) {
+        warnings.push(`${displayPath(path)}: skipped ${skippedUnreadable} unreadable Codex rollout thread${skippedUnreadable === 1 ? "" : "s"} before selecting an older readable rollout`);
+      }
+      const goal = row.threadId ? readGoalForThread(db, row.threadId, warnings) : null;
+      return {
+        kind: "active",
+        rolloutPath: row.rolloutPath,
+        model: row.model ?? "unknown",
+        threadId: row.threadId ?? undefined,
+        goal
+      };
     }
 
-    const goal = row.threadId ? readGoalForThread(db, row.threadId, warnings) : null;
-    return {
-      kind: "active",
-      rolloutPath: row.rolloutPath,
-      model: row.model ?? "unknown",
-      threadId: row.threadId ?? undefined,
-      goal
-    };
+    warnings.push(`${displayPath(path)}: no readable Codex rollout path among ${rows.length} active threads; falling back`);
+    return null;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     warnings.push(`${displayPath(path)}: Codex state SQLite could not be read (${message}); falling back`);

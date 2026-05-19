@@ -90,6 +90,68 @@ test("Codex detector chooses the most recently updated thread from state_5", asy
   }
 });
 
+test("Codex detector skips unreadable active threads and selects an older readable rollout", async () => {
+  const home = await makeTempDir();
+  try {
+    const readableRolloutPath = join(home, "sessions", "2026", "05", "18", "rollout-readable.jsonl");
+    const missingRolloutPath = join(home, "sessions", "2026", "05", "18", "rollout-missing.jsonl");
+    await mkdir(join(home, "sessions", "2026", "05", "18"), { recursive: true });
+    await writeFile(readableRolloutPath, "{}\n", "utf8");
+
+    const db = new Database(join(home, "state_5.sqlite"));
+    db.exec(`
+      CREATE TABLE threads (
+        rollout_path TEXT,
+        model TEXT,
+        updated_at_ms INTEGER NOT NULL
+      );
+    `);
+    const now = Date.now();
+    db.prepare("INSERT INTO threads (rollout_path, model, updated_at_ms) VALUES (?, ?, ?)").run(readableRolloutPath, "gpt-5", now - 1000);
+    db.prepare("INSERT INTO threads (rollout_path, model, updated_at_ms) VALUES (?, ?, ?)").run(missingRolloutPath, "gpt-5.5", now);
+    db.close();
+
+    const result = detectCodexStorage({ codexHome: home, defaultCodexHome: join(home, "missing") });
+
+    assert.equal(result.status, "found");
+    assert.equal(result.path, readableRolloutPath);
+    assert.equal(result.model, "gpt-5");
+    assert.match(result.warnings.join("\n"), /skipped 1 unreadable Codex rollout thread/);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("Codex detector does not let stale state block SQLite fallback", async () => {
+  const home = await makeTempDir();
+  try {
+    const rolloutPath = join(home, "sessions", "2026", "05", "18", "rollout-stale.jsonl");
+    await mkdir(join(home, "sessions", "2026", "05", "18"), { recursive: true });
+    await writeFile(rolloutPath, "{}\n", "utf8");
+    createValidCodexSqlite(join(home, "logs_2.sqlite"));
+
+    const db = new Database(join(home, "state_5.sqlite"));
+    db.exec(`
+      CREATE TABLE threads (
+        rollout_path TEXT,
+        model TEXT,
+        updated_at_ms INTEGER NOT NULL
+      );
+    `);
+    db.prepare("INSERT INTO threads (rollout_path, model, updated_at_ms) VALUES (?, ?, ?)")
+      .run(rolloutPath, "gpt-5.5", Date.now() - 600_000);
+    db.close();
+
+    const result = detectCodexStorage({ codexHome: home, defaultCodexHome: join(home, "missing") });
+
+    assert.equal(result.status, "found");
+    assert.equal(result.format, "sqlite");
+    assert.equal(result.path, join(home, "logs_2.sqlite"));
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
 test("Codex detector attaches active goal metadata from thread_goals", async () => {
   const home = await makeTempDir();
   try {
