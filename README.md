@@ -244,13 +244,19 @@ JSON reports include the same prompt-level data in a stable `schemaVersion: 1` s
 
 Pricing is bundled in `pricing.json` and keyed by model name. tokenwatch checks exact keys first, then resolves date-suffixed snapshot IDs such as `gpt-5.5-2026-05-01` to a bundled base key like `gpt-5.5` when available. Unknown models still render, but their estimated cost is `$0.0000` until pricing is added. Run `tokenwatch pricing` to see when the bundled rates were verified, the official source URLs, and whether the local table is older than the freshness window. Use `tokenwatch pricing --json` for a stable `schemaVersion: 1` report containing freshness, matching policy, scope, and sorted model rates.
 
-Bundled model keys include:
+Bundled model keys:
 
 - `claude-opus-4-7`
 - `claude-opus-4-6`
+- `claude-opus-4-5`
+- `claude-opus-4-1`
+- `claude-opus-4`
 - `claude-sonnet-4-6`
 - `claude-sonnet-4-5`
+- `claude-sonnet-4`
+- `claude-haiku-4-5-20251001`
 - `claude-haiku-4-5`
+- `claude-haiku-3-5`
 - `gpt-5.5`
 - `gpt-5.4`
 - `gpt-5.4-mini`
@@ -258,8 +264,12 @@ Bundled model keys include:
 - `gpt-5.1`
 - `gpt-5`
 - `gpt-5-mini`
+- `gpt-5-nano`
 - `gpt-5.2-codex`
+- `gpt-5.1-codex-max`
 - `gpt-5.1-codex`
+- `gpt-5-codex`
+- `gpt-5.1-codex-mini`
 - `codex-mini-latest`
 
 ## Data and Privacy
@@ -288,6 +298,9 @@ Redaction does not edit source Claude Code or Codex CLI logs. Avoid committing p
 ```sh
 npm install
 npm run typecheck
+npm run lint
+npm run format:check
+npm run docs:check
 npm test
 ```
 
@@ -299,7 +312,7 @@ npm install -g .
 tokenwatch
 ```
 
-Tests use Node's built-in `node:test` runner and import compiled files from `dist/`, so `npm test` builds before running the suite.
+Tests use Node's built-in `node:test` runner and import compiled files from `dist/`, so `npm test` builds before running the suite. The lint and format checks are dependency-free repository checks for whitespace, final newlines, line endings, and documentation/CLI pricing sync.
 
 ## Contributing
 
