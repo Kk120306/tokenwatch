@@ -231,7 +231,7 @@ JSON reports include the same prompt-level data in a stable `schemaVersion: 1` s
 
 ## Pricing
 
-Pricing is bundled in `pricing.json` and keyed by model name. Unknown models still render, but their estimated cost is `$0.0000` until pricing is added. Run `tokenwatch pricing` to see when the bundled rates were verified, the official source URLs, and whether the local table is older than the freshness window.
+Pricing is bundled in `pricing.json` and keyed by model name. tokenwatch checks exact keys first, then resolves date-suffixed snapshot IDs such as `gpt-5.5-2026-05-01` to a bundled base key like `gpt-5.5` when available. Unknown models still render, but their estimated cost is `$0.0000` until pricing is added. Run `tokenwatch pricing` to see when the bundled rates were verified, the official source URLs, and whether the local table is older than the freshness window.
 
 Bundled model keys include:
 

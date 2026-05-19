@@ -6,7 +6,7 @@ import Database from "better-sqlite3";
 import test from "node:test";
 import { addToTotal, createEmptyTotal, formatSessionTotal, formatTurn } from "../dist/display.js";
 import { createCodexSqliteParser } from "../dist/parsers/codex.js";
-import { estimateCostUsd, getPricingFreshness, loadPricing, renderPricingInfo } from "../dist/pricing.js";
+import { estimateCostUsd, getPricingFreshness, loadPricing, renderPricingInfo, resolvePricingModel } from "../dist/pricing.js";
 import { findMostRecentSessionFile, getLatestCodexRowId, inspectPath, readCodexTurnsSince, startTokenWatcher } from "../dist/watcher.js";
 
 test("pricing estimates known models and falls back to zero for unknown models", () => {
@@ -26,6 +26,40 @@ test("pricing estimates known models and falls back to zero for unknown models",
 
   assert.equal(estimateCostUsd("gpt-5", usage, pricing), 0.032);
   assert.equal(estimateCostUsd("unknown", usage, pricing), 0);
+});
+
+test("pricing resolves date-suffixed model snapshots to bundled base keys", () => {
+  const pricing = {
+    "gpt-5.5": {
+      inputPerMillion: 5,
+      cachedInputPerMillion: 0.5,
+      outputPerMillion: 30
+    },
+    "claude-sonnet-4-6": {
+      inputPerMillion: 3,
+      cachedInputPerMillion: 0.3,
+      outputPerMillion: 15
+    }
+  };
+  const usage = {
+    inputTokens: 1000,
+    cachedInputTokens: 500,
+    outputTokens: 1000,
+    reasoningTokens: 0
+  };
+
+  assert.deepEqual(resolvePricingModel("gpt-5.5-2026-05-01", pricing), {
+    requestedModel: "gpt-5.5-2026-05-01",
+    matchedModel: "gpt-5.5",
+    exact: false
+  });
+  assert.deepEqual(resolvePricingModel("claude-sonnet-4-6-20260518", pricing), {
+    requestedModel: "claude-sonnet-4-6-20260518",
+    matchedModel: "claude-sonnet-4-6",
+    exact: false
+  });
+  assert.equal(estimateCostUsd("gpt-5.5-2026-05-01", usage, pricing), 0.03525);
+  assert.equal(estimateCostUsd("unknown-2026-05-01", usage, pricing), 0);
 });
 
 test("bundled pricing includes current Codex GPT model rates", () => {
@@ -72,6 +106,7 @@ test("pricing freshness reports source verification age and stale status", () =>
     }
   }, new Date("2026-05-18T12:00:00.000Z"));
   assert.match(output, /Status: fresh \(0 days old; stale after 90 days\)/);
+  assert.match(output, /date-suffixed snapshot IDs fall back/);
   assert.match(output, /https:\/\/openai\.com\/api\/pricing\//);
   assert.match(output, /gpt-5: input \$1.25 \/ cached \$0.125 \/ output \$10.00 per 1M tokens/);
 });

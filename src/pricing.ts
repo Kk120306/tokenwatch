@@ -23,9 +23,32 @@ export interface PricingFreshness {
   sources: readonly string[];
 }
 
+export interface PricingResolution {
+  requestedModel: string;
+  matchedModel: string;
+  exact: boolean;
+}
+
 export function loadPricing(path = defaultPricingPath): PricingTable {
   const raw = readFileSync(path, "utf8");
   return JSON.parse(raw) as PricingTable;
+}
+
+export function resolvePricingModel(
+  model: string,
+  pricing: PricingTable
+): PricingResolution | null {
+  const candidates = pricingModelCandidates(model);
+  for (const candidate of candidates) {
+    if (pricing[candidate]) {
+      return {
+        requestedModel: model,
+        matchedModel: candidate,
+        exact: candidate === model.trim()
+      };
+    }
+  }
+  return null;
 }
 
 export function estimateCostUsd(
@@ -33,7 +56,8 @@ export function estimateCostUsd(
   usage: TokenUsage,
   pricing: PricingTable
 ): number {
-  const entry = pricing[model];
+  const resolved = resolvePricingModel(model, pricing);
+  const entry = resolved ? pricing[resolved.matchedModel] : undefined;
   if (!entry) {
     return 0;
   }
@@ -50,7 +74,8 @@ export function estimateCacheSavingsUsd(
   cachedTokens: number,
   pricing: PricingTable
 ): number {
-  const entry = pricing[model];
+  const resolved = resolvePricingModel(model, pricing);
+  const entry = resolved ? pricing[resolved.matchedModel] : undefined;
   if (!entry) {
     return 0;
   }
@@ -84,6 +109,7 @@ export function renderPricingInfo(
     `Verified: ${freshness.verifiedAt}`,
     `Status: ${status} (${freshness.ageDays} days old; stale after ${freshness.staleAfterDays} days)`,
     "Scope: standard first-party API token rates; batch, regional, fast-mode, and marketplace modifiers are not applied.",
+    "Matching: exact model keys first; date-suffixed snapshot IDs fall back to the bundled base key when available.",
     "",
     "Sources:",
     ...freshness.sources.map((source) => `- ${source}`),
@@ -94,6 +120,29 @@ export function renderPricingInfo(
       .map(([model, entry]) => `${model}: input $${formatRate(entry.inputPerMillion)} / cached $${formatRate(entry.cachedInputPerMillion)} / output $${formatRate(entry.outputPerMillion)} per 1M tokens`)
   ];
   return `${lines.join("\n")}\n`;
+}
+
+function pricingModelCandidates(model: string): string[] {
+  const normalized = model.trim();
+  if (!normalized) {
+    return [];
+  }
+
+  const candidates = [normalized];
+  addCandidate(candidates, stripDateSuffix(normalized));
+  return candidates;
+}
+
+function stripDateSuffix(model: string): string {
+  return model
+    .replace(/-(?:20\d{2}-\d{2}-\d{2}|\d{8})$/, "")
+    .replace(/-(?:20\d{2}-\d{2}-\d{2}|\d{8})$/, "");
+}
+
+function addCandidate(candidates: string[], candidate: string): void {
+  if (candidate && !candidates.includes(candidate)) {
+    candidates.push(candidate);
+  }
 }
 
 function formatRate(value: number): string {
