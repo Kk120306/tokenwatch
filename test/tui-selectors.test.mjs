@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { formatDetectionLines, formatFooterStatus, formatSourceHealthStatus, getPromptViewport, selectedFilters, shortcutLineForWidth, unselectedFilters } from "../dist/ui/App.js";
+import { formatDetectionLines, formatFooterStatus, formatSourceHealthStatus, getOnboardingState, getPromptViewport, selectedFilters, shortcutLineForWidth, unselectedFilters } from "../dist/ui/App.js";
 import { filterTurns, normalizeModel, recommendModel, summarizeModels, summarizeStats, uniqueModels } from "../dist/ui/selectors.js";
 
 const turns = [
@@ -183,6 +183,57 @@ test("TUI source health status summarizes ready, partial, limited, and degraded 
     severity: "ready",
     text: "Sources: ready (Claude Code jsonl, Codex CLI jsonl)"
   });
+});
+
+test("TUI onboarding state gives actionable next steps", () => {
+  const missingClaude = {
+    source: "claude",
+    status: "missing",
+    format: "none",
+    path: null,
+    paths: [],
+    detail: "set CLAUDE_HOME or start a Claude Code session",
+    warnings: []
+  };
+  const missingCodex = {
+    source: "codex",
+    status: "missing",
+    format: "none",
+    path: null,
+    paths: [],
+    detail: "set CODEX_HOME or start a Codex session",
+    warnings: []
+  };
+  const codexJsonl = {
+    source: "codex",
+    status: "found",
+    format: "jsonl",
+    path: "/tmp/rollout.jsonl",
+    paths: ["/tmp/rollout.jsonl"],
+    detail: "rollout",
+    warnings: []
+  };
+
+  assert.deepEqual(getOnboardingState(null), {
+    title: "Checking local session storage",
+    detail: "tokenwatch is looking for supported Claude Code and Codex CLI sessions.",
+    nextAction: "Keep this open, or run tokenwatch doctor for setup diagnostics."
+  });
+  assert.equal(getOnboardingState({
+    claude: missingClaude,
+    codex: {
+      ...missingCodex,
+      detail: "codex → waiting for session..."
+    }
+  }).title, "Waiting for a Codex session");
+  assert.match(getOnboardingState({
+    claude: missingClaude,
+    codex: codexJsonl
+  }).detail, /Connected to codex jsonl/);
+  assert.equal(getOnboardingState({
+    claude: missingClaude,
+    codex: missingCodex
+  }).title, "No supported sessions detected");
 });
 
 test("TUI footer status and shortcuts stay useful in narrow terminals", () => {

@@ -44,6 +44,12 @@ export interface SourceHealthStatus {
   text: string;
 }
 
+export interface OnboardingState {
+  title: string;
+  detail: string;
+  nextAction: string;
+}
+
 export interface AppProps {
   turns: ParsedTurn[];
   pricing: PricingTable;
@@ -393,19 +399,21 @@ function budgetRatio(spent: number, budget: number): number {
 }
 
 function Onboarding({ detectionSummary }: { detectionSummary: StorageDetectionSummary | null }): React.JSX.Element {
+  const state = getOnboardingState(detectionSummary);
   return (
     <Box flexDirection="column">
       <Logo />
-      <Text bold>  tokenwatch is ready</Text>
+      <Text bold>  {state.title}</Text>
       <Text dimColor>  ─────────────────────────────────────────</Text>
+      <Text>  {state.detail}</Text>
+      <Text>  Next: {state.nextAction}</Text>
+      <Text> </Text>
       {formatDetectionLines("Claude Code", detectionSummary?.claude).map((line, index) => (
         <Text key={`claude-${index}`} dimColor={index > 0}>{line}</Text>
       ))}
       {formatDetectionLines("Codex CLI", detectionSummary?.codex).map((line, index) => (
         <Text key={`codex-${index}`} dimColor={index > 0}>{line}</Text>
       ))}
-      <Text> </Text>
-      <Text>  Send a prompt in your AI CLI to see usage appear here.</Text>
     </Box>
   );
 }
@@ -572,6 +580,10 @@ function StatsView({
   const mostExpensive = stats.mostExpensiveTurn
     ? `#${mostExpensiveIndex}  ~${formatUsd(stats.mostExpensiveTurn.costUsd)}  (${stats.mostExpensiveTurn.topic ?? "untagged"})`
     : "none";
+
+  if (turns.length === 0) {
+    return <Text dimColor>No stats match the current filters. Press f or t to adjust filters.</Text>;
+  }
 
   if (focus === "recommendations") {
     return (
@@ -873,6 +885,42 @@ export function formatSourceHealthStatus(
   return {
     severity: "ready",
     text: `Sources: ready (${sourceList})`
+  };
+}
+
+export function getOnboardingState(detectionSummary: StorageDetectionSummary | null): OnboardingState {
+  if (!detectionSummary) {
+    return {
+      title: "Checking local session storage",
+      detail: "tokenwatch is looking for supported Claude Code and Codex CLI sessions.",
+      nextAction: "Keep this open, or run tokenwatch doctor for setup diagnostics."
+    };
+  }
+
+  const found = [detectionSummary.claude, detectionSummary.codex]
+    .filter((result) => result.status === "found");
+  if (found.length > 0) {
+    const sourceList = found.map((result) => `${result.source} ${result.format}`).join(", ");
+    return {
+      title: "Watching detected session storage",
+      detail: `Connected to ${sourceList}; no prompt usage has arrived in this run yet.`,
+      nextAction: "Send a prompt in your AI CLI, or run tokenwatch export to inspect previous prompts."
+    };
+  }
+
+  const codexWaiting = detectionSummary.codex.detail.includes("waiting for session");
+  if (codexWaiting) {
+    return {
+      title: "Waiting for a Codex session",
+      detail: "Codex state was found, but it has not written an active rollout path yet.",
+      nextAction: "Send one Codex prompt, then tokenwatch will switch to the richer rollout source automatically."
+    };
+  }
+
+  return {
+    title: "No supported sessions detected",
+    detail: "tokenwatch could not find readable Claude Code or Codex CLI storage.",
+    nextAction: "Start Claude Code or Codex CLI, or run tokenwatch sessions to copy an explicit --session command."
   };
 }
 
