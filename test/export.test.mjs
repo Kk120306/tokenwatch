@@ -7,7 +7,7 @@ import test from "node:test";
 import { renderCsvReport } from "../dist/export/csv.js";
 import { renderJsonReport } from "../dist/export/json.js";
 import { renderMarkdownReport } from "../dist/export/markdown.js";
-import { runExport } from "../dist/export/runner.js";
+import { applyExportPreset, runExport } from "../dist/export/runner.js";
 
 const pricing = {
   "gpt-5.5": {
@@ -35,6 +35,7 @@ test("export runner prints complete subcommand help", async () => {
     assert.equal(logs.length, 1);
     assert.match(logs[0], /tokenwatch export/);
     assert.match(logs[0], /--stdout/);
+    assert.match(logs[0], /--preset <name>/);
     assert.match(logs[0], /--all-sessions/);
     assert.match(logs[0], /--since <date>/);
     assert.match(logs[0], /--model <name>/);
@@ -42,6 +43,32 @@ test("export runner prints complete subcommand help", async () => {
   } finally {
     console.log = originalLog;
   }
+});
+
+test("export presets fill common date and topic filters without overriding explicit filters", () => {
+  const now = new Date("2026-05-19T12:34:56.000Z");
+  const explicitSince = new Date("2026-05-01T08:00:00.000Z");
+
+  const daily = applyExportPreset(exportArgs({ preset: "daily" }), now);
+  assert.equal(daily.since.toISOString(), "2026-05-19T00:00:00.000Z");
+
+  const dailyWithExplicitSince = applyExportPreset(exportArgs({
+    preset: "daily",
+    since: explicitSince
+  }), now);
+  assert.equal(dailyWithExplicitSince.since, explicitSince);
+
+  const weekly = applyExportPreset(exportArgs({ preset: "weekly" }), now);
+  assert.equal(weekly.since.toISOString(), "2026-05-12T12:34:56.000Z");
+
+  const topic = applyExportPreset(exportArgs({ preset: "debugging" }), now);
+  assert.deepEqual(topic.topics, ["debugging"]);
+
+  const topicWithExplicitTopic = applyExportPreset(exportArgs({
+    preset: "debugging",
+    topics: ["building"]
+  }), now);
+  assert.deepEqual(topicWithExplicitTopic.topics, ["building"]);
 });
 
 test("Markdown report renders grouped totals, prompt fallback, and chronological prompt log", () => {
@@ -596,6 +623,60 @@ test("export runner filters prompts and writes a single report to stdout", async
   }
 });
 
+test("export runner applies topic presets to stdout reports", async () => {
+  const originalHome = process.env.HOME;
+  const originalCodexHome = process.env.CODEX_HOME;
+  const originalClaudeHome = process.env.CLAUDE_HOME;
+  const originalWrite = process.stdout.write;
+  const home = await makeTempDir();
+  const codexHome = join(home, "codex");
+  const claudeHome = join(home, "claude");
+  const rolloutPath = join(codexHome, "sessions", "rollout.jsonl");
+  let stdout = "";
+
+  try {
+    process.env.HOME = home;
+    process.env.CODEX_HOME = codexHome;
+    process.env.CLAUDE_HOME = claudeHome;
+    await mkdir(join(codexHome, "sessions"), { recursive: true });
+    await mkdir(claudeHome, { recursive: true });
+    await writeFile(rolloutPath, [
+      codexUserMessage("2026-05-18T08:00:00.000Z", "fix the export preset bug"),
+      codexTokenCount(1000, 100, 50),
+      codexUserMessage("2026-05-18T10:00:00.000Z", "build export preset dashboard"),
+      codexTokenCount(2000, 400, 100)
+    ].join("\n"), "utf8");
+
+    process.stdout.write = (chunk) => {
+      stdout += String(chunk);
+      return true;
+    };
+
+    await runExport([
+      "--json",
+      "--stdout",
+      "--session",
+      rolloutPath,
+      "--session-source",
+      "codex",
+      "--preset",
+      "debugging"
+    ]);
+
+    const json = JSON.parse(stdout);
+    assert.equal(json.summary.prompts, 1);
+    assert.equal(json.turns[0].promptText, "fix the export preset bug");
+    assert.equal(json.turns[0].topic, "debugging");
+    assert.doesNotMatch(stdout, /build export preset dashboard/);
+  } finally {
+    process.stdout.write = originalWrite;
+    restoreEnv("HOME", originalHome);
+    restoreEnv("CODEX_HOME", originalCodexHome);
+    restoreEnv("CLAUDE_HOME", originalClaudeHome);
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
 test("export runner all-sessions mode combines detected JSONL history", async () => {
   const originalHome = process.env.HOME;
   const originalCodexHome = process.env.CODEX_HOME;
@@ -683,6 +764,21 @@ function parsedTurn(overrides) {
     topic: overrides.topic,
     topicConfidence: overrides.topic ? "auto" : null,
     goal: overrides.goal ?? null
+  };
+}
+
+function exportArgs(overrides = {}) {
+  return {
+    markdown: true,
+    csv: false,
+    json: false,
+    outDir: "/tmp",
+    redactPrompts: false,
+    stdout: false,
+    allSessions: false,
+    models: [],
+    topics: [],
+    ...overrides
   };
 }
 

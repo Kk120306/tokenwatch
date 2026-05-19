@@ -335,7 +335,7 @@ function printHelp(): void {
   console.log(`tokenwatch
 
 Usage:
-  tokenwatch export [--md|--csv|--json] [--stdout] [--all-sessions] [--since <date>] [--until <date>] [--model <name>] [--topic <name>] [--redact-prompts] [--session <path>] [--session-source <claude|codex>] [--out <dir>]
+  tokenwatch export [--md|--csv|--json] [--stdout] [--preset <name>] [--all-sessions] [--since <date>] [--until <date>] [--model <name>] [--topic <name>] [--redact-prompts] [--session <path>] [--session-source <claude|codex>] [--out <dir>]
   tokenwatch init [--json] [--redact-prompts] [--daily-budget <amount>] [--weekly-budget <amount>] [--monthly-budget <amount>]
   tokenwatch sessions [--json|--commands]
   tokenwatch doctor [--json]
@@ -353,6 +353,7 @@ Options:
   --csv                With export, include the CSV report
   --json               With export, write a structured JSON report; with init, sessions, doctor, or pricing, print machine-readable output
   --stdout             With export, print one selected report format to stdout
+  --preset <name>      With export, apply daily, weekly, or built-in topic filters
   --all-sessions       With export, combine every detected JSONL/log session path
   --since <date>       With export, include prompts at or after an ISO date/timestamp
   --until <date>       With export, include prompts at or before an ISO date/timestamp

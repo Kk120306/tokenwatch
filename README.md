@@ -88,6 +88,7 @@ tokenwatch export
 tokenwatch export --md --out ./reports
 tokenwatch export --csv
 tokenwatch export --json --stdout --since 2026-05-18 --topic debugging
+tokenwatch export --preset weekly --json --stdout
 tokenwatch export --all-sessions --model gpt-5.5 --out ./history
 tokenwatch pricing --json
 ```
@@ -174,6 +175,7 @@ tokenwatch export [export-options]
 | `--csv`                     | Include the CSV report.                                                                |
 | `--json`                    | Include a structured JSON report with summary, group, prompt, cache, context, and goal fields. |
 | `--stdout`                  | Print one selected report format to stdout instead of writing files. Defaults to Markdown when no format is specified. |
+| `--preset <name>`           | Apply common filters: `daily`, `today`, `weekly`, `week`, or a built-in topic such as `debugging`. Explicit `--since` and `--topic` values win. |
 | `--all-sessions`            | Export every detected JSONL/log session path instead of only the newest session.        |
 | `--since <date>`            | Include prompts at or after an ISO date or timestamp. Date-only values start at `00:00:00Z`. |
 | `--until <date>`            | Include prompts at or before an ISO date or timestamp. Date-only values end at `23:59:59.999Z`. |
@@ -233,6 +235,7 @@ tokenwatch export
 Export mode reads the most recent detected session and writes reports under `./tokenwatch-exports` by default. Filenames use the first exported prompt's date so historical exports stay stable across days.
 Pass `--session <path>` to export a specific session from `tokenwatch sessions`, and add `--session-source` when the path is an ambiguous JSONL file.
 Pass `--all-sessions` to combine every detected JSONL/log session path into one chronological report, then narrow it with `--since`, `--until`, `--model`, or `--topic`.
+Pass `--preset daily`, `--preset weekly`, or a built-in topic preset such as `--preset debugging` for common recurring report slices without memorizing filters.
 
 Markdown reports include totals, model breakdowns, source breakdowns, topic breakdowns, cache savings, costliest prompt highlights, prompt excerpts, and goal metadata when available.
 

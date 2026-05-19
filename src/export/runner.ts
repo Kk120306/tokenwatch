@@ -19,14 +19,40 @@ import { renderMarkdownReport } from "./markdown.js";
 import type { ActiveSessionFile, FoundStorageResult, ParsedTurn, PricingTable, SessionSource, StorageResult, TokenTurn, TopicRuleConfig } from "../types.js";
 
 const DEFAULT_EXPORT_DIR = "tokenwatch-exports";
+const MS_PER_DAY = 86_400_000;
+const TOPIC_PRESETS = new Set([
+  "building",
+  "debugging",
+  "devops",
+  "documentation",
+  "learning",
+  "refactoring",
+  "review",
+  "testing"
+]);
 
-interface ExportArgs {
+export type ExportPreset =
+  | "daily"
+  | "today"
+  | "weekly"
+  | "week"
+  | "building"
+  | "debugging"
+  | "devops"
+  | "documentation"
+  | "learning"
+  | "refactoring"
+  | "review"
+  | "testing";
+
+export interface ExportArgs {
   markdown: boolean;
   csv: boolean;
   json: boolean;
   outDir: string;
   sessionPath?: string;
   sessionSource?: SessionSource;
+  preset?: ExportPreset;
   redactPrompts: boolean;
   stdout: boolean;
   allSessions: boolean;
@@ -101,6 +127,7 @@ function parseExportArgs(argv: readonly string[]): ExportArgs {
   let outDir = DEFAULT_EXPORT_DIR;
   let sessionPath: string | undefined;
   let sessionSource: SessionSource | undefined;
+  let preset: ExportPreset | undefined;
   let redactPrompts = false;
   let stdout = false;
   let allSessions = false;
@@ -125,6 +152,15 @@ function parseExportArgs(argv: readonly string[]): ExportArgs {
     }
     if (arg === "--redact-prompts") {
       redactPrompts = true;
+      continue;
+    }
+    if (arg === "--preset") {
+      const value = argv[index + 1];
+      if (!value) {
+        throw new Error("Missing value for --preset");
+      }
+      preset = parseExportPreset(value);
+      index += 1;
       continue;
     }
     if (arg === "--stdout") {
@@ -214,13 +250,14 @@ function parseExportArgs(argv: readonly string[]): ExportArgs {
     throw new Error("--stdout requires exactly one report format (--md, --csv, or --json)");
   }
 
-  return {
+  return applyExportPreset({
     markdown,
     csv,
     json,
     outDir: resolve(outDir),
     sessionPath,
     sessionSource,
+    preset,
     redactPrompts,
     stdout,
     allSessions,
@@ -228,20 +265,21 @@ function parseExportArgs(argv: readonly string[]): ExportArgs {
     until,
     models,
     topics
-  };
+  });
 }
 
 export function renderExportHelp(): string {
   return `tokenwatch export
 
 Usage:
-  tokenwatch export [--md|--csv|--json] [--stdout] [--all-sessions] [--since <date>] [--until <date>] [--model <name>] [--topic <name>] [--redact-prompts] [--session <path>] [--session-source <claude|codex>] [--out <dir>]
+  tokenwatch export [--md|--csv|--json] [--stdout] [--preset <name>] [--all-sessions] [--since <date>] [--until <date>] [--model <name>] [--topic <name>] [--redact-prompts] [--session <path>] [--session-source <claude|codex>] [--out <dir>]
 
 Options:
   --md                       Include the Markdown report
   --csv                      Include the CSV report
   --json                     Include the structured JSON report
   --stdout                   Print one selected report format to stdout instead of writing files
+  --preset <name>            Apply common filters: daily, weekly, or a built-in topic such as debugging
   --all-sessions             Export every detected JSONL/log session path instead of only the newest session
   --since <date>             Include prompts at or after an ISO date or timestamp
   --until <date>             Include prompts at or before an ISO date or timestamp
@@ -253,6 +291,49 @@ Options:
   --out <dir>                Write reports to this directory. Default: ./tokenwatch-exports
   -h, --help                 Show this help.
 `;
+}
+
+export function applyExportPreset(args: ExportArgs, now = new Date()): ExportArgs {
+  if (!args.preset) {
+    return args;
+  }
+
+  if (args.preset === "daily" || args.preset === "today") {
+    return {
+      ...args,
+      since: args.since ?? startOfUtcDay(now)
+    };
+  }
+
+  if (args.preset === "weekly" || args.preset === "week") {
+    return {
+      ...args,
+      since: args.since ?? new Date(now.getTime() - 7 * MS_PER_DAY)
+    };
+  }
+
+  return {
+    ...args,
+    topics: args.topics.length > 0 ? args.topics : [args.preset]
+  };
+}
+
+function parseExportPreset(value: string): ExportPreset {
+  const normalized = value.trim().toLowerCase();
+  if (
+    normalized === "daily" ||
+    normalized === "today" ||
+    normalized === "weekly" ||
+    normalized === "week" ||
+    TOPIC_PRESETS.has(normalized)
+  ) {
+    return normalized as ExportPreset;
+  }
+  throw new Error("--preset must be daily, weekly, or one of: building, debugging, devops, documentation, learning, refactoring, review, testing");
+}
+
+function startOfUtcDay(date: Date): Date {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
 }
 
 function parseSessionSource(value: string): SessionSource {

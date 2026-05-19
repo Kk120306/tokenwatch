@@ -18,6 +18,7 @@ requireSnippets("README.md", readme, [
   "tokenwatch doctor [--json]",
   "tokenwatch pricing [--json]",
   "`--stdout`",
+  "`--preset <name>`",
   "`--all-sessions`",
   "`--since <date>`",
   "`--until <date>`",
@@ -29,6 +30,7 @@ requireSnippets("README.md", readme, [
 requireSnippets("src/index.ts", indexSource, [
   "tokenwatch init [--json]",
   "tokenwatch pricing [--json]",
+  "--preset <name>",
   "--all-sessions",
   "--stdout"
 ]);
@@ -37,6 +39,7 @@ requireSnippets("src/export/runner.ts", exportRunner, [
   "tokenwatch export [--md|--csv|--json]",
   "--all-sessions",
   "--stdout",
+  "--preset <name>",
   "--since <date>",
   "--until <date>",
   "--model <name>",

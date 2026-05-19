@@ -19,6 +19,7 @@ test("CLI e2e exposes help and machine-readable pricing", async () => {
     const help = await runTokenwatch(["--help"], home);
     assert.equal(help.code, 0);
     assert.match(help.stdout, /tokenwatch export/);
+    assert.match(help.stdout, /--preset <name>/);
     assert.match(help.stdout, /tokenwatch pricing \[--json\]/);
     assert.equal(help.stderr, "");
 
