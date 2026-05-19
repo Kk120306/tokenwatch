@@ -453,6 +453,7 @@ async function startJsonlWatcher(
     }
 
     if (previousOffset !== undefined && stat.size < previousOffset) {
+      logger(`tokenwatch: ${storage.source} file truncated; restarting reader at ${path}`);
       offsets.set(path, stat.size);
       parsers.delete(path);
       return;
@@ -488,6 +489,7 @@ async function startJsonlWatcher(
     files.delete(path);
     offsets.delete(path);
     parsers.delete(path);
+    logger(`tokenwatch: ${storage.source} file disappeared; waiting for replacement at ${path}`);
     void refreshActive();
   });
   watcher.on("error", (error) => {

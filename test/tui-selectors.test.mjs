@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { formatDetectionLines, formatFooterStatus, getPromptViewport, selectedFilters, shortcutLineForWidth, unselectedFilters } from "../dist/ui/App.js";
+import { formatDetectionLines, formatFooterStatus, formatSourceHealthStatus, getPromptViewport, selectedFilters, shortcutLineForWidth, unselectedFilters } from "../dist/ui/App.js";
 import { filterTurns, normalizeModel, recommendModel, summarizeModels, summarizeStats, uniqueModels } from "../dist/ui/selectors.js";
 
 const turns = [
@@ -105,6 +105,84 @@ test("TUI onboarding diagnostics explain missing, waiting, and found sources", (
     "  ✓  Codex CLI     /tmp/logs_2.sqlite   sqlite",
     "     Usage is available; prompt text is best-effort from nearby user-message telemetry."
   ]);
+});
+
+test("TUI source health status summarizes ready, partial, limited, and degraded sources", () => {
+  assert.deepEqual(formatSourceHealthStatus(null), {
+    severity: "checking",
+    text: "Sources: checking"
+  });
+
+  const missingClaude = {
+    source: "claude",
+    status: "missing",
+    format: "none",
+    path: null,
+    paths: [],
+    detail: "not detected",
+    warnings: []
+  };
+  const codexJsonl = {
+    source: "codex",
+    status: "found",
+    format: "jsonl",
+    path: "/tmp/rollout.jsonl",
+    paths: ["/tmp/rollout.jsonl"],
+    detail: "rollout",
+    warnings: []
+  };
+  const codexSqlite = {
+    ...codexJsonl,
+    format: "sqlite",
+    path: "/tmp/logs_2.sqlite",
+    paths: ["/tmp/logs_2.sqlite"],
+    detail: "sqlite"
+  };
+  const claudeJsonl = {
+    source: "claude",
+    status: "found",
+    format: "jsonl",
+    path: "/tmp/claude.jsonl",
+    paths: ["/tmp/claude.jsonl"],
+    detail: "claude",
+    warnings: []
+  };
+
+  assert.deepEqual(formatSourceHealthStatus({
+    claude: missingClaude,
+    codex: { ...missingClaude, source: "codex" }
+  }), {
+    severity: "missing",
+    text: "Sources: missing (Claude Code, Codex CLI)"
+  });
+  assert.deepEqual(formatSourceHealthStatus({
+    claude: missingClaude,
+    codex: codexJsonl
+  }), {
+    severity: "partial",
+    text: "Sources: partial (Codex CLI jsonl; missing Claude Code)"
+  });
+  assert.deepEqual(formatSourceHealthStatus({
+    claude: missingClaude,
+    codex: codexSqlite
+  }), {
+    severity: "limited",
+    text: "Sources: limited (Codex CLI sqlite; Codex prompt text best-effort)"
+  });
+  assert.deepEqual(formatSourceHealthStatus({
+    claude: claudeJsonl,
+    codex: { ...codexJsonl, warnings: ["schema drift"] }
+  }, ["schema drift"]), {
+    severity: "degraded",
+    text: "Sources: degraded (Claude Code jsonl, Codex CLI jsonl; 1 warning)"
+  });
+  assert.deepEqual(formatSourceHealthStatus({
+    claude: claudeJsonl,
+    codex: codexJsonl
+  }), {
+    severity: "ready",
+    text: "Sources: ready (Claude Code jsonl, Codex CLI jsonl)"
+  });
 });
 
 test("TUI footer status and shortcuts stay useful in narrow terminals", () => {

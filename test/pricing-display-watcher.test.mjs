@@ -432,6 +432,59 @@ test("JSONL watcher detects appends after the initial scan with default polling"
   }
 });
 
+test("JSONL watcher reports truncation and keeps reading replacement content", async () => {
+  const dir = join(tmpdir(), `tokenwatch-truncate-${Date.now()}`);
+  const path = join(dir, "session.jsonl");
+  const codexDbPath = join(dir, "logs_2.sqlite");
+  const turns = [];
+  const logs = [];
+  let watcher;
+
+  try {
+    await mkdir(dir, { recursive: true });
+    await writeFile(path, "", "utf8");
+    createEmptyCodexLogs(codexDbPath);
+
+    watcher = await startTokenWatcher((turn) => turns.push(turn), {
+      claudeGlob: path,
+      codexDbPath,
+      pollIntervalMs: 10,
+      detectionIntervalMs: 10_000,
+      logger: (message) => logs.push(message)
+    });
+
+    await appendFile(path, [
+      JSON.stringify({ type: "user", message: { content: "first prompt before truncation" } }),
+      JSON.stringify({ type: "assistant", message: { model: "claude-sonnet-4-6", usage: { input_tokens: 100, output_tokens: 10 } } }),
+      ""
+    ].join("\n"), "utf8");
+    await waitFor(() => turns.length === 1);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    await writeFile(path, "x\n", "utf8");
+    await waitFor(() => logs.some((message) => message.includes("file truncated; restarting reader")), 3000);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    await appendFile(path, [
+      JSON.stringify({ type: "user", message: { content: "second prompt after truncation" } }),
+      JSON.stringify({ type: "assistant", message: { model: "claude-sonnet-4-6", usage: { input_tokens: 200, output_tokens: 20 } } }),
+      ""
+    ].join("\n"), "utf8");
+
+    await waitFor(() => turns.length === 2, 3000);
+    assert.equal(turns[1].promptText, "second prompt after truncation");
+    assert.deepEqual(turns[1].usage, {
+      inputTokens: 200,
+      cachedInputTokens: 0,
+      outputTokens: 20,
+      reasoningTokens: 0
+    });
+  } finally {
+    await watcher?.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("Codex state watcher tails startup rollout but reads a new mid-session thread from byte zero", async () => {
   const dir = join(tmpdir(), `tokenwatch-codex-rollout-${Date.now()}`);
   const statePath = join(dir, "state_5.sqlite");

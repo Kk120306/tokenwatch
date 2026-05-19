@@ -39,6 +39,11 @@ export interface AppState {
   isLive: boolean;
 }
 
+export interface SourceHealthStatus {
+  severity: "checking" | "ready" | "partial" | "limited" | "degraded" | "missing";
+  text: string;
+}
+
 export interface AppProps {
   turns: ParsedTurn[];
   pricing: PricingTable;
@@ -210,6 +215,7 @@ export default function App({
   const stale = lastTurnReceivedAt === null || Date.now() - lastTurnReceivedAt > STALE_AFTER_MS;
   const liveColor = stale ? "gray" : "green";
   const liveDim = stale || !isLive;
+  const sourceHealth = formatSourceHealthStatus(detectionSummary, warnings);
   const budgetEnabled = hasBudget(budgetConfig);
   const filteredCostUsd = filteredTurns.reduce((total, turn) => total + turn.costUsd, 0);
   const footerStatus = formatFooterStatus({
@@ -262,10 +268,10 @@ export default function App({
         )}
       </Box>
 
-      {warnings.length > 0 ? (
-        <Text color="yellow" wrap="truncate-end">{warnings.at(-1)}</Text>
+      {warnings.length > 0 || sourceHealth.severity === "degraded" ? (
+        <Text color="yellow" wrap="truncate-end">{sourceHealth.text} | {warnings.at(-1) ?? "check source warnings"}</Text>
       ) : (
-        <Text dimColor>{footerStatus}</Text>
+        <Text dimColor>{sourceHealth.text} | {footerStatus}</Text>
       )}
       <Text inverse>{shortcutLineForWidth(width)}</Text>
     </Box>
@@ -807,6 +813,67 @@ export function formatDetectionLines(label: string, result: StorageResult | unde
     `     ${visibilityHint(result)}`,
     ...formatDetectionWarnings(result)
   ];
+}
+
+export function formatSourceHealthStatus(
+  detectionSummary: StorageDetectionSummary | null,
+  runtimeWarnings: readonly string[] = []
+): SourceHealthStatus {
+  if (!detectionSummary) {
+    return {
+      severity: "checking",
+      text: "Sources: checking"
+    };
+  }
+
+  const sources = [
+    { label: "Claude Code", result: detectionSummary.claude },
+    { label: "Codex CLI", result: detectionSummary.codex }
+  ];
+  const found = sources.filter((source) => source.result.status === "found");
+  const warningCount = new Set([
+    ...runtimeWarnings,
+    ...sources.flatMap((source) => source.result.warnings)
+  ]).size;
+
+  if (found.length === 0) {
+    return {
+      severity: "missing",
+      text: `Sources: missing (${sources.map((source) => source.label).join(", ")})`
+    };
+  }
+
+  const sourceList = found.map((source) => `${source.label} ${source.result.format}`).join(", ");
+  if (warningCount > 0) {
+    return {
+      severity: "degraded",
+      text: `Sources: degraded (${sourceList}; ${warningCount} warning${warningCount === 1 ? "" : "s"})`
+    };
+  }
+
+  const limitedCodex = found.find((source) => source.result.source === "codex" && source.result.format !== "jsonl");
+  if (limitedCodex) {
+    return {
+      severity: "limited",
+      text: `Sources: limited (${sourceList}; Codex prompt text ${limitedCodex.result.format === "sqlite" ? "best-effort" : "fallback"})`
+    };
+  }
+
+  if (found.length < sources.length) {
+    const missingLabels = sources
+      .filter((source) => source.result.status === "missing")
+      .map((source) => source.label)
+      .join(", ");
+    return {
+      severity: "partial",
+      text: `Sources: partial (${sourceList}; missing ${missingLabels})`
+    };
+  }
+
+  return {
+    severity: "ready",
+    text: `Sources: ready (${sourceList})`
+  };
 }
 
 function actionableDetectionDetail(result: StorageResult): string {
