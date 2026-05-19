@@ -22,6 +22,7 @@ interface InitArgs {
   showPrompts?: boolean;
   nonInteractive: boolean;
   help: boolean;
+  json: boolean;
 }
 
 export interface InitOptions {
@@ -34,6 +35,10 @@ export interface InitOptions {
   showPrompts?: boolean;
 }
 
+export interface InitRunOptions {
+  baseDir?: string;
+}
+
 export interface InitReport {
   status: InitStatus;
   wrote: boolean;
@@ -42,7 +47,20 @@ export interface InitReport {
   text: string;
 }
 
-export async function runInit(argv: readonly string[] = [], version = "0.0.0"): Promise<void> {
+export interface InitJsonReport {
+  schemaVersion: 1;
+  status: InitStatus;
+  wrote: boolean;
+  path: string;
+  version: string;
+  config: TokenwatchConfig;
+}
+
+export async function runInit(
+  argv: readonly string[] = [],
+  version = "0.0.0",
+  options: InitRunOptions = {}
+): Promise<void> {
   const args = parseInitArgs(argv);
   if (args.help) {
     printInitHelp();
@@ -56,9 +74,10 @@ export async function runInit(argv: readonly string[] = [], version = "0.0.0"): 
     monthlyBudgetUsd: args.monthlyBudgetUsd ?? interactiveOptions.monthlyBudgetUsd,
     alertAt: args.alertAt ?? interactiveOptions.alertAt,
     redactPrompts: args.redactPrompts ?? interactiveOptions.redactPrompts,
-    showPrompts: args.showPrompts ?? interactiveOptions.showPrompts
+    showPrompts: args.showPrompts ?? interactiveOptions.showPrompts,
+    baseDir: options.baseDir
   }, version);
-  console.log(report.text.trimEnd());
+  process.stdout.write(args.json ? renderInitJsonReport(report, version) : report.text);
 }
 
 export function createInitReport(options: InitOptions = {}, version = "0.0.0"): InitReport {
@@ -93,6 +112,21 @@ export function createInitReport(options: InitOptions = {}, version = "0.0.0"): 
     config,
     text: renderInitReport(status, wrote, path, config, version)
   };
+}
+
+export function createInitJsonReport(report: InitReport, version = "0.0.0"): InitJsonReport {
+  return {
+    schemaVersion: 1,
+    status: report.status,
+    wrote: report.wrote,
+    path: report.path,
+    version,
+    config: report.config
+  };
+}
+
+export function renderInitJsonReport(report: InitReport, version = "0.0.0"): string {
+  return `${JSON.stringify(createInitJsonReport(report, version), null, 2)}\n`;
 }
 
 function renderInitReport(
@@ -166,11 +200,16 @@ async function promptForInitOptions(args: InitArgs): Promise<InitOptions> {
 }
 
 function parseInitArgs(argv: readonly string[]): InitArgs {
-  const args: InitArgs = { help: false, nonInteractive: false };
+  const args: InitArgs = { help: false, json: false, nonInteractive: false };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === "--help" || arg === "-h") {
       args.help = true;
+      continue;
+    }
+    if (arg === "--json") {
+      args.json = true;
+      args.nonInteractive = true;
       continue;
     }
     if (arg === "--non-interactive") {
@@ -254,10 +293,11 @@ function printInitHelp(): void {
   console.log(`tokenwatch init
 
 Usage:
-  tokenwatch init [--non-interactive] [--redact-prompts|--show-prompts] [--daily-budget <amount>] [--weekly-budget <amount>] [--monthly-budget <amount>] [--alert-at <pct>]
+  tokenwatch init [--json] [--non-interactive] [--redact-prompts|--show-prompts] [--daily-budget <amount>] [--weekly-budget <amount>] [--monthly-budget <amount>] [--alert-at <pct>]
   tokenwatch setup [same options]
 
 Options:
+  --json                  Print a machine-readable setup report; implies --non-interactive
   --non-interactive       Use defaults and explicit flags without terminal prompts
   --redact-prompts        Save config that hides prompt text in tokenwatch by default
   --show-prompts          Save config that shows prompt text in tokenwatch by default

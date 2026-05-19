@@ -22,6 +22,28 @@ const pricing = {
   }
 };
 
+test("export runner prints complete subcommand help", async () => {
+  const originalLog = console.log;
+  const logs = [];
+  try {
+    console.log = (message) => {
+      logs.push(String(message));
+    };
+
+    await runExport(["--help"]);
+
+    assert.equal(logs.length, 1);
+    assert.match(logs[0], /tokenwatch export/);
+    assert.match(logs[0], /--stdout/);
+    assert.match(logs[0], /--all-sessions/);
+    assert.match(logs[0], /--since <date>/);
+    assert.match(logs[0], /--model <name>/);
+    assert.match(logs[0], /--topic <name>/);
+  } finally {
+    console.log = originalLog;
+  }
+});
+
 test("Markdown report renders grouped totals, prompt fallback, and chronological prompt log", () => {
   const report = renderMarkdownReport([
     parsedTurn({

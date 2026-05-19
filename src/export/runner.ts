@@ -42,6 +42,11 @@ interface ExportSession {
 }
 
 export async function runExport(argv: readonly string[]): Promise<void> {
+  if (argv.includes("--help") || argv.includes("-h")) {
+    console.log(renderExportHelp().trimEnd());
+    return;
+  }
+
   const args = parseExportArgs(argv);
   const pricing = loadPricing();
   const config = loadConfig();
@@ -224,6 +229,30 @@ function parseExportArgs(argv: readonly string[]): ExportArgs {
     models,
     topics
   };
+}
+
+export function renderExportHelp(): string {
+  return `tokenwatch export
+
+Usage:
+  tokenwatch export [--md|--csv|--json] [--stdout] [--all-sessions] [--since <date>] [--until <date>] [--model <name>] [--topic <name>] [--redact-prompts] [--session <path>] [--session-source <claude|codex>] [--out <dir>]
+
+Options:
+  --md                       Include the Markdown report
+  --csv                      Include the CSV report
+  --json                     Include the structured JSON report
+  --stdout                   Print one selected report format to stdout instead of writing files
+  --all-sessions             Export every detected JSONL/log session path instead of only the newest session
+  --since <date>             Include prompts at or after an ISO date or timestamp
+  --until <date>             Include prompts at or before an ISO date or timestamp
+  --model <name>             Include only matching model names; repeat or comma-separate values
+  --topic <name>             Include only matching topics; repeat or comma-separate values
+  --redact-prompts           Replace captured prompt text with [redacted]
+  --session <path>           Export a specific JSONL, log, or SQLite session path
+  --session-source <source>  Source for ambiguous JSONL paths: claude or codex
+  --out <dir>                Write reports to this directory. Default: ./tokenwatch-exports
+  -h, --help                 Show this help.
+`;
 }
 
 function parseSessionSource(value: string): SessionSource {

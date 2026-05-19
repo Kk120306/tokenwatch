@@ -9,7 +9,7 @@ import { hasBudget, loadConfig, type TokenwatchConfig } from "./config.js";
 import { runDoctor } from "./doctor.js";
 import { runExport } from "./export/runner.js";
 import { runInit } from "./init.js";
-import { loadPricing, renderPricingInfo } from "./pricing.js";
+import { loadPricing, runPricing } from "./pricing.js";
 import { redactParsedTurnPrompt } from "./privacy.js";
 import { detectSessionSummary, renderSessionCommands, renderSessionList, renderSessionListJson, resolveSessionSelection } from "./sessions.js";
 import { createParsedTurn } from "./turns.js";
@@ -62,7 +62,7 @@ async function main(argv: readonly string[]): Promise<void> {
     return;
   }
   if (argv[0] === "pricing") {
-    console.log(renderPricingInfo(loadPricing()).trimEnd());
+    runPricing(argv.slice(1));
     return;
   }
   if (argv[0] === "doctor") {
@@ -329,11 +329,11 @@ function printHelp(): void {
   console.log(`tokenwatch
 
 Usage:
-  tokenwatch export [--md] [--csv] [--json] [--redact-prompts] [--session <path>] [--session-source <claude|codex>] [--out <dir>]
-  tokenwatch init [--redact-prompts] [--daily-budget <amount>] [--weekly-budget <amount>] [--monthly-budget <amount>]
+  tokenwatch export [--md|--csv|--json] [--stdout] [--all-sessions] [--since <date>] [--until <date>] [--model <name>] [--topic <name>] [--redact-prompts] [--session <path>] [--session-source <claude|codex>] [--out <dir>]
+  tokenwatch init [--json] [--redact-prompts] [--daily-budget <amount>] [--weekly-budget <amount>] [--monthly-budget <amount>]
   tokenwatch sessions [--json|--commands]
   tokenwatch doctor [--json]
-  tokenwatch pricing
+  tokenwatch pricing [--json]
   tokenwatch [--session <path>] [--session-source <claude|codex>] [--claude-glob <glob>] [--codex-db <path>] [--topic <name>] [--redact-prompts] [--daily-budget <amount>] [--weekly-budget <amount>] [--monthly-budget <amount>]
 
 Options:
@@ -341,17 +341,22 @@ Options:
   init, setup          Create or update ~/.tokenwatch/config.json for first-run defaults
   sessions             List detected local Claude Code and Codex CLI sessions
   doctor               Validate local log discovery, config, pricing freshness, and suggested commands
-  pricing              Show bundled pricing freshness, sources, and model rates
+  pricing              Show bundled pricing freshness, sources, and model rates; add --json for scripts
   --commands           With sessions, print only copyable watch commands
   --md                 With export, include the Markdown report
   --csv                With export, include the CSV report
-  --json               With export, write a structured JSON report
+  --json               With export, write a structured JSON report; with init, sessions, doctor, or pricing, print machine-readable output
+  --stdout             With export, print one selected report format to stdout
+  --all-sessions       With export, combine every detected JSONL/log session path
+  --since <date>       With export, include prompts at or after an ISO date/timestamp
+  --until <date>       With export, include prompts at or before an ISO date/timestamp
+  --model <name>       With export, include only matching model names
   --out <dir>          With export, write reports to this directory. Default: ./tokenwatch-exports
   --session <path>      Watch or export a specific JSONL, log, or SQLite session path
   --session-source <source> Source for ambiguous --session JSONL paths: claude or codex
   --claude-glob <glob>  Claude Code JSONL glob. Default: auto-detect from $CLAUDE_HOME or ~/.claude
   --codex-db <path>     Codex CLI SQLite database. Default: auto-detect from $CODEX_HOME or ~/.codex
-  --topic <name>        Manually tag every parsed prompt in this session with the given topic
+  --topic <name>        Manually tag every parsed prompt in this session; with export, filter matching topics
   --redact-prompts      Replace captured prompt text with [redacted] in the TUI and exports
   --daily-budget <amount>   Daily budget in USD. Overrides ~/.tokenwatch/config.json
   --weekly-budget <amount>  Weekly budget in USD. Overrides ~/.tokenwatch/config.json

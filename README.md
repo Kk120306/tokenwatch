@@ -64,6 +64,7 @@ tokenwatch --codex-db "$HOME/.codex/logs_2.sqlite"
 
 # List and select detected sessions
 tokenwatch init --redact-prompts --daily-budget 5 --weekly-budget 25 --monthly-budget 100
+tokenwatch init --json --non-interactive
 tokenwatch doctor
 tokenwatch doctor --json
 tokenwatch sessions
@@ -88,6 +89,7 @@ tokenwatch export --md --out ./reports
 tokenwatch export --csv
 tokenwatch export --json --stdout --since 2026-05-18 --topic debugging
 tokenwatch export --all-sessions --model gpt-5.5 --out ./history
+tokenwatch pricing --json
 ```
 
 ## Dashboard Controls
@@ -132,10 +134,10 @@ tokenwatch export --all-sessions --model gpt-5.5 --out ./history
 
 ```sh
 tokenwatch [options]
-tokenwatch init
+tokenwatch init [--json]
 tokenwatch sessions [--json|--commands]
 tokenwatch doctor [--json]
-tokenwatch pricing
+tokenwatch pricing [--json]
 tokenwatch export [export-options]
 ```
 
@@ -144,10 +146,10 @@ tokenwatch export [export-options]
 
 | Option                     | Description                                                                              |
 | -------------------------- | ---------------------------------------------------------------------------------------- |
-| `init`, `setup`            | Create or update `~/.tokenwatch/config.json` for first-run defaults.                     |
+| `init`, `setup`            | Create or update `~/.tokenwatch/config.json` for first-run defaults; add `--json` for scripts. |
 | `sessions`                 | List detected local Claude Code and Codex CLI session paths; add `--json` for scripts or `--commands` for active copyable watch commands. |
 | `doctor`                   | Validate local log discovery, config, pricing freshness, and suggested commands; add `--json` for scripts. |
-| `pricing`                  | Show bundled pricing freshness, source URLs, and model rates.                            |
+| `pricing`                  | Show bundled pricing freshness, source URLs, and model rates; add `--json` for scripts.  |
 | `--session <path>`         | Watch a specific JSONL, log, or SQLite session path.                                     |
 | `--session-source <source>`| Source for ambiguous `--session` JSONL paths: `claude` or `codex`.                       |
 | `--claude-glob <glob>`     | Claude Code JSONL glob. Defaults to auto-detection from `$CLAUDE_HOME` or `~/.claude`.   |
@@ -195,7 +197,7 @@ Environment variables:
 
 Run `tokenwatch doctor` after installation or when prompt rows do not appear. It is read-only: it reports detected Claude Code and Codex CLI storage, prompt visibility, config status, pricing freshness, warnings, and suggested `tokenwatch --session ...` commands. Exit codes are `0` for ready, `1` for usable but degraded, `2` when no supported logs are found, and `3` for config/path errors.
 
-Run `tokenwatch init` to create or update `~/.tokenwatch/config.json`. In a terminal it prompts for prompt redaction and budgets; in scripts use flags such as `tokenwatch init --non-interactive --redact-prompts --daily-budget 5 --weekly-budget 25 --monthly-budget 100`. `tokenwatch setup` is an alias. The command writes only tokenwatch's own config file and never modifies Claude Code or Codex CLI storage.
+Run `tokenwatch init` to create or update `~/.tokenwatch/config.json`. In a terminal it prompts for prompt redaction and budgets; in scripts use flags such as `tokenwatch init --non-interactive --redact-prompts --daily-budget 5 --weekly-budget 25 --monthly-budget 100`. Add `--json` for a machine-readable setup report; it implies non-interactive mode so stdout remains pure JSON. `tokenwatch setup` is an alias. The command writes only tokenwatch's own config file and never modifies Claude Code or Codex CLI storage.
 
 
 Optional configuration:
@@ -240,7 +242,7 @@ JSON reports include the same prompt-level data in a stable `schemaVersion: 1` s
 
 ## Pricing
 
-Pricing is bundled in `pricing.json` and keyed by model name. tokenwatch checks exact keys first, then resolves date-suffixed snapshot IDs such as `gpt-5.5-2026-05-01` to a bundled base key like `gpt-5.5` when available. Unknown models still render, but their estimated cost is `$0.0000` until pricing is added. Run `tokenwatch pricing` to see when the bundled rates were verified, the official source URLs, and whether the local table is older than the freshness window.
+Pricing is bundled in `pricing.json` and keyed by model name. tokenwatch checks exact keys first, then resolves date-suffixed snapshot IDs such as `gpt-5.5-2026-05-01` to a bundled base key like `gpt-5.5` when available. Unknown models still render, but their estimated cost is `$0.0000` until pricing is added. Run `tokenwatch pricing` to see when the bundled rates were verified, the official source URLs, and whether the local table is older than the freshness window. Use `tokenwatch pricing --json` for a stable `schemaVersion: 1` report containing freshness, matching policy, scope, and sorted model rates.
 
 Bundled model keys include:
 

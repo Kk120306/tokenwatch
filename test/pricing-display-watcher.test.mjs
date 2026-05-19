@@ -6,7 +6,7 @@ import Database from "better-sqlite3";
 import test from "node:test";
 import { addToTotal, createEmptyTotal, formatSessionTotal, formatTurn } from "../dist/display.js";
 import { createCodexSqliteParser } from "../dist/parsers/codex.js";
-import { estimateCostUsd, getPricingFreshness, loadPricing, renderPricingInfo, resolvePricingModel } from "../dist/pricing.js";
+import { createPricingReport, estimateCostUsd, getPricingFreshness, loadPricing, renderPricingHelp, renderPricingInfo, renderPricingJson, resolvePricingModel, runPricing } from "../dist/pricing.js";
 import { findMostRecentSessionFile, getLatestCodexRowId, inspectPath, readCodexTurnsSince, startTokenWatcher } from "../dist/watcher.js";
 
 test("pricing estimates known models and falls back to zero for unknown models", () => {
@@ -109,6 +109,51 @@ test("pricing freshness reports source verification age and stale status", () =>
   assert.match(output, /date-suffixed snapshot IDs fall back/);
   assert.match(output, /https:\/\/openai\.com\/api\/pricing\//);
   assert.match(output, /gpt-5: input \$1.25 \/ cached \$0.125 \/ output \$10.00 per 1M tokens/);
+});
+
+test("pricing JSON and help surfaces are machine-friendly", () => {
+  const pricing = {
+    "gpt-5.5": {
+      inputPerMillion: 5,
+      cachedInputPerMillion: 0.5,
+      outputPerMillion: 30
+    },
+    "gpt-5": {
+      inputPerMillion: 1.25,
+      cachedInputPerMillion: 0.125,
+      outputPerMillion: 10
+    }
+  };
+  const report = createPricingReport(pricing, new Date("2026-05-18T12:00:00.000Z"));
+  assert.equal(report.schemaVersion, 1);
+  assert.equal(report.freshness.ageDays, 0);
+  assert.deepEqual(report.models.map((entry) => entry.model), ["gpt-5", "gpt-5.5"]);
+  assert.match(report.matching, /date-suffixed snapshot IDs/);
+
+  const json = JSON.parse(renderPricingJson(pricing, new Date("2026-05-18T12:00:00.000Z")));
+  assert.equal(json.models[0].model, "gpt-5");
+  assert.equal(json.models[1].outputPerMillion, 30);
+  assert.match(renderPricingHelp(), /tokenwatch pricing \[--json\]/);
+});
+
+test("pricing runner prints parseable JSON when requested", () => {
+  const originalWrite = process.stdout.write;
+  let stdout = "";
+
+  try {
+    process.stdout.write = (chunk) => {
+      stdout += String(chunk);
+      return true;
+    };
+
+    runPricing(["--json"]);
+
+    const json = JSON.parse(stdout);
+    assert.equal(json.schemaVersion, 1);
+    assert.ok(json.models.some((entry) => entry.model === "gpt-5.5"));
+  } finally {
+    process.stdout.write = originalWrite;
+  }
 });
 
 test("display formats prompt rows and totals", () => {
