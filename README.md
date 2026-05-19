@@ -293,8 +293,10 @@ TUI preferences are stored locally in `~/.tokenwatch/ui-state.json` and contain 
 - [Changelog](CHANGELOG.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Data storage notes](docs/DATA_STORAGE.md)
+- [Troubleshooting](docs/TROUBLESHOOTING.md)
 - [Test spec](docs/TEST_SPEC.md)
 - [Product requirements](docs/PRD.md)
+- [Project wiki](omx_wiki/README.md)
 
 ## Development Setup
 

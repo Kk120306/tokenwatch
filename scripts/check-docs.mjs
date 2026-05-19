@@ -1,12 +1,23 @@
 #!/usr/bin/env node
 import { readFile } from "node:fs/promises";
 
-const [readme, indexSource, exportRunner, initSource, pricingSource, pricingJsonRaw] = await Promise.all([
+const [
+  readme,
+  indexSource,
+  exportRunner,
+  initSource,
+  pricingSource,
+  troubleshooting,
+  wikiReadme,
+  pricingJsonRaw
+] = await Promise.all([
   readFile("README.md", "utf8"),
   readFile("src/index.ts", "utf8"),
   readFile("src/export/runner.ts", "utf8"),
   readFile("src/init.ts", "utf8"),
   readFile("src/pricing.ts", "utf8"),
+  readFile("docs/TROUBLESHOOTING.md", "utf8"),
+  readFile("omx_wiki/README.md", "utf8"),
   readFile("pricing.json", "utf8")
 ]);
 
@@ -24,6 +35,8 @@ requireSnippets("README.md", readme, [
   "`--until <date>`",
   "`--model <name>`",
   "`--topic <name>`",
+  "docs/TROUBLESHOOTING.md",
+  "omx_wiki/README.md",
   "schemaVersion: 1"
 ]);
 
@@ -54,6 +67,22 @@ requireSnippets("src/init.ts", initSource, [
 requireSnippets("src/pricing.ts", pricingSource, [
   "tokenwatch pricing [--json]",
   "schemaVersion: 1"
+]);
+
+requireSnippets("docs/TROUBLESHOOTING.md", troubleshooting, [
+  "tokenwatch doctor",
+  "tokenwatch sessions --commands",
+  "Codex says \"waiting for session\"",
+  "--preset daily",
+  "~/.tokenwatch/ui-state.json",
+  "--redact-prompts"
+]);
+
+requireSnippets("omx_wiki/README.md", wikiReadme, [
+  "Detection heuristics",
+  "Workflows and gotchas",
+  "parser contracts",
+  "persisted state files"
 ]);
 
 const pricingKeys = Object.keys(JSON.parse(pricingJsonRaw)).sort((left, right) => left.localeCompare(right));

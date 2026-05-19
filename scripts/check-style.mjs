@@ -6,7 +6,7 @@ const ROOT = process.cwd();
 const TEXT_EXTENSIONS = new Set([".js", ".mjs", ".ts", ".tsx", ".json", ".md", ".yml", ".yaml"]);
 const SKIP_DIRS = new Set([".git", ".npm-cache", "dist", "node_modules", "test/tmp"]);
 const TOP_LEVEL_FILES = ["README.md", "CHANGELOG.md", "CONTRIBUTING.md", "SECURITY.md", "package.json", "pricing.json", "tsconfig.json"];
-const TOP_LEVEL_DIRS = [".github", "docs", "scripts", "src", "test"];
+const TOP_LEVEL_DIRS = [".github", "docs", "omx_wiki", "scripts", "src", "test"];
 
 const failures = [];
 let checked = 0;
