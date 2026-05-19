@@ -28,6 +28,12 @@ interface ExportArgs {
   sessionPath?: string;
   sessionSource?: SessionSource;
   redactPrompts: boolean;
+  stdout: boolean;
+  allSessions: boolean;
+  since?: Date;
+  until?: Date;
+  models: string[];
+  topics: string[];
 }
 
 interface ExportSession {
@@ -46,12 +52,17 @@ export async function runExport(argv: readonly string[]): Promise<void> {
     args.redactPrompts || config.redactPromptText
   );
   if (turns.length === 0) {
-    console.log("no active session found — start a prompt first");
+    console.log("no matching prompts found — adjust export filters or start a prompt first");
+    return;
+  }
+
+  if (args.stdout) {
+    process.stdout.write(renderStdoutReport(turns, pricing, args));
     return;
   }
 
   await mkdir(args.outDir, { recursive: true });
-  const filenameDate = formatFilenameDate(new Date());
+  const filenameDate = formatFilenameDate(turns[0]?.timestamp ?? new Date());
   const writtenFiles: string[] = [];
 
   if (args.markdown) {
@@ -86,6 +97,12 @@ function parseExportArgs(argv: readonly string[]): ExportArgs {
   let sessionPath: string | undefined;
   let sessionSource: SessionSource | undefined;
   let redactPrompts = false;
+  let stdout = false;
+  let allSessions = false;
+  let since: Date | undefined;
+  let until: Date | undefined;
+  const models: string[] = [];
+  const topics: string[] = [];
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -103,6 +120,50 @@ function parseExportArgs(argv: readonly string[]): ExportArgs {
     }
     if (arg === "--redact-prompts") {
       redactPrompts = true;
+      continue;
+    }
+    if (arg === "--stdout") {
+      stdout = true;
+      continue;
+    }
+    if (arg === "--all-sessions") {
+      allSessions = true;
+      continue;
+    }
+    if (arg === "--since") {
+      const value = argv[index + 1];
+      if (!value) {
+        throw new Error("Missing value for --since");
+      }
+      since = parseDateBound(value, "--since", "start");
+      index += 1;
+      continue;
+    }
+    if (arg === "--until") {
+      const value = argv[index + 1];
+      if (!value) {
+        throw new Error("Missing value for --until");
+      }
+      until = parseDateBound(value, "--until", "end");
+      index += 1;
+      continue;
+    }
+    if (arg === "--model") {
+      const value = argv[index + 1];
+      if (!value) {
+        throw new Error("Missing value for --model");
+      }
+      models.push(...parseFilterValues(value));
+      index += 1;
+      continue;
+    }
+    if (arg === "--topic") {
+      const value = argv[index + 1];
+      if (!value) {
+        throw new Error("Missing value for --topic");
+      }
+      topics.push(...parseFilterValues(value));
+      index += 1;
       continue;
     }
     if (arg === "--out") {
@@ -136,8 +197,16 @@ function parseExportArgs(argv: readonly string[]): ExportArgs {
   }
 
   if (!markdown && !csv && !json) {
-    markdown = true;
-    csv = true;
+    if (stdout) {
+      markdown = true;
+    } else {
+      markdown = true;
+      csv = true;
+    }
+  }
+
+  if (stdout && [markdown, csv, json].filter(Boolean).length !== 1) {
+    throw new Error("--stdout requires exactly one report format (--md, --csv, or --json)");
   }
 
   return {
@@ -147,7 +216,13 @@ function parseExportArgs(argv: readonly string[]): ExportArgs {
     outDir: resolve(outDir),
     sessionPath,
     sessionSource,
-    redactPrompts
+    redactPrompts,
+    stdout,
+    allSessions,
+    since,
+    until,
+    models,
+    topics
   };
 }
 
@@ -160,16 +235,22 @@ function parseSessionSource(value: string): SessionSource {
 
 async function readCurrentSessionTurns(
   pricing: PricingTable,
-  options: Pick<ExportArgs, "sessionPath" | "sessionSource"> = {},
+  options: Pick<ExportArgs, "sessionPath" | "sessionSource" | "allSessions" | "since" | "until" | "models" | "topics"> = {
+    allSessions: false,
+    models: [],
+    topics: []
+  },
   topicRules: readonly TopicRuleConfig[] = [],
   redactPrompts = false
 ): Promise<ParsedTurn[]> {
   const detected = detectExportStorage(options);
-  const session = await findPreviousSession(detected);
-  if (!session) {
+  const sessions = await findExportSessions(detected, options.allSessions && !options.sessionPath);
+  if (sessions.length === 0) {
     return [];
   }
-  const turns = await readStorageTurns(session.storage, session.activeFile.path);
+  const turns = (await Promise.all(
+    sessions.map((session) => readStorageTurns(session.storage, session.activeFile.path))
+  )).flat();
 
   const parsed: ParsedTurn[] = [];
   const byUpdateKey = new Map<string, number>();
@@ -197,7 +278,10 @@ async function readCurrentSessionTurns(
     parsed.push(parsedTurn);
   }
 
-  return parsed.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+  return applyExportFilters(
+    parsed.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime()),
+    options
+  );
 }
 
 function applyPrivacy(turn: ParsedTurn, redactPrompts: boolean): ParsedTurn {
@@ -222,21 +306,37 @@ function detectExportStorage(options: Pick<ExportArgs, "sessionPath" | "sessionS
   })];
 }
 
-async function findPreviousSession(detected: readonly StorageResult[]): Promise<ExportSession | null> {
-  const sessions = await Promise.all(detected.map(findExportSession));
-  return sessions
-    .filter((session): session is ExportSession => session !== null)
-    .sort((a, b) => b.activeFile.mtimeMs - a.activeFile.mtimeMs)[0] ?? null;
+async function findExportSessions(
+  detected: readonly StorageResult[],
+  includeAllSessions: boolean
+): Promise<ExportSession[]> {
+  const sessions = (await Promise.all(
+    detected.map((storage) => findExportSessionsForStorage(storage, includeAllSessions))
+  )).flat();
+  const sorted = sessions.sort((a, b) => b.activeFile.mtimeMs - a.activeFile.mtimeMs);
+  return includeAllSessions ? sorted : sorted.slice(0, 1);
 }
 
-async function findExportSession(storage: StorageResult): Promise<ExportSession | null> {
+async function findExportSessionsForStorage(
+  storage: StorageResult,
+  includeAllSessions: boolean
+): Promise<ExportSession[]> {
   if (storage.status !== "found") {
-    return null;
+    return [];
   }
-  const activeFile = storage.format === "sqlite"
-    ? await inspectPath(storage.path, storage.source)
-    : await findActiveStoragePath(storage);
-  return activeFile ? { storage, activeFile } : null;
+  if (storage.format === "sqlite") {
+    const activeFile = await inspectPath(storage.path, storage.source);
+    return activeFile ? [{ storage, activeFile }] : [];
+  }
+  if (!includeAllSessions) {
+    const activeFile = await findActiveStoragePath(storage);
+    return activeFile ? [{ storage, activeFile }] : [];
+  }
+  const inspected = await Promise.all(storage.paths.map((path) => inspectPath(path, storage.source)));
+  return inspected
+    .filter((activeFile): activeFile is ActiveSessionFile => activeFile !== null)
+    .sort((a, b) => b.mtimeMs - a.mtimeMs)
+    .map((activeFile) => ({ storage, activeFile }));
 }
 
 async function readStorageTurns(storage: FoundStorageResult, activePath: string): Promise<TokenTurn[]> {
@@ -309,6 +409,68 @@ function isZeroTokenTurn(turn: TokenTurn): boolean {
     turn.usage.cachedInputTokens === 0 &&
     turn.usage.outputTokens === 0 &&
     turn.usage.reasoningTokens === 0;
+}
+
+function renderStdoutReport(
+  turns: readonly ParsedTurn[],
+  pricing: PricingTable,
+  args: Pick<ExportArgs, "markdown" | "csv" | "json">
+): string {
+  if (args.json) {
+    return renderJsonReport(turns, pricing);
+  }
+  if (args.csv) {
+    return renderCsvReport(turns, pricing);
+  }
+  return renderMarkdownReport(turns, pricing);
+}
+
+function applyExportFilters(
+  turns: readonly ParsedTurn[],
+  options: Pick<ExportArgs, "since" | "until" | "models" | "topics">
+): ParsedTurn[] {
+  const modelSet = new Set(options.models.map((model) => model.trim()).filter(Boolean));
+  const topicSet = new Set(options.topics.map(normalizeTopicFilter).filter(Boolean));
+  return turns.filter((turn) => {
+    if (options.since && turn.timestamp < options.since) {
+      return false;
+    }
+    if (options.until && turn.timestamp > options.until) {
+      return false;
+    }
+    if (modelSet.size > 0 && !modelSet.has(turn.model)) {
+      return false;
+    }
+    if (topicSet.size > 0 && !topicSet.has(normalizeTopicFilter(turn.topic ?? "untagged"))) {
+      return false;
+    }
+    return true;
+  });
+}
+
+function parseFilterValues(value: string): string[] {
+  return value
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function parseDateBound(value: string, flag: string, mode: "start" | "end"): Date {
+  const trimmed = value.trim();
+  const isoDateOnly = /^\d{4}-\d{2}-\d{2}$/.test(trimmed);
+  const normalized = isoDateOnly
+    ? `${trimmed}T${mode === "start" ? "00:00:00.000" : "23:59:59.999"}Z`
+    : trimmed;
+  const parsed = new Date(normalized);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error(`${flag} must be an ISO date or timestamp`);
+  }
+  return parsed;
+}
+
+function normalizeTopicFilter(topic: string): string {
+  const normalized = topic.trim().toLowerCase();
+  return normalized === "uncategorized" ? "untagged" : normalized;
 }
 
 function displayPath(path: string): string {

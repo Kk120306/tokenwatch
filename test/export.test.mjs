@@ -511,6 +511,117 @@ test("export runner redacts prompt text while preserving topic and totals", asyn
   }
 });
 
+test("export runner filters prompts and writes a single report to stdout", async () => {
+  const originalHome = process.env.HOME;
+  const originalCodexHome = process.env.CODEX_HOME;
+  const originalClaudeHome = process.env.CLAUDE_HOME;
+  const originalWrite = process.stdout.write;
+  const home = await makeTempDir();
+  const codexHome = join(home, "codex");
+  const claudeHome = join(home, "claude");
+  const rolloutPath = join(codexHome, "sessions", "rollout.jsonl");
+  let stdout = "";
+
+  try {
+    process.env.HOME = home;
+    process.env.CODEX_HOME = codexHome;
+    process.env.CLAUDE_HOME = claudeHome;
+    await mkdir(join(codexHome, "sessions"), { recursive: true });
+    await mkdir(claudeHome, { recursive: true });
+    await writeFile(rolloutPath, [
+      codexUserMessage("2026-05-18T08:00:00.000Z", "fix the old bug"),
+      codexTokenCount(1000, 100, 50),
+      codexUserMessage("2026-05-18T10:00:00.000Z", "build the filtered export"),
+      codexTokenCount(2000, 400, 100),
+      codexUserMessage("2026-05-18T11:00:00.000Z", "document filtered export"),
+      codexTokenCount(3000, 600, 150)
+    ].join("\n"), "utf8");
+
+    process.stdout.write = (chunk) => {
+      stdout += String(chunk);
+      return true;
+    };
+
+    await runExport([
+      "--json",
+      "--stdout",
+      "--session",
+      rolloutPath,
+      "--session-source",
+      "codex",
+      "--since",
+      "2026-05-18T09:00:00.000Z",
+      "--until",
+      "2026-05-18T10:30:00.000Z",
+      "--model",
+      "unknown",
+      "--topic",
+      "building"
+    ]);
+
+    const json = JSON.parse(stdout);
+    assert.equal(json.summary.prompts, 1);
+    assert.equal(json.turns[0].promptText, "build the filtered export");
+    assert.equal(json.turns[0].topic, "building");
+    assert.doesNotMatch(stdout, /fix the old bug/);
+    assert.doesNotMatch(stdout, /document filtered export/);
+  } finally {
+    process.stdout.write = originalWrite;
+    restoreEnv("HOME", originalHome);
+    restoreEnv("CODEX_HOME", originalCodexHome);
+    restoreEnv("CLAUDE_HOME", originalClaudeHome);
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("export runner all-sessions mode combines detected JSONL history", async () => {
+  const originalHome = process.env.HOME;
+  const originalCodexHome = process.env.CODEX_HOME;
+  const originalClaudeHome = process.env.CLAUDE_HOME;
+  const home = await makeTempDir();
+  const claudeHome = join(home, "claude");
+  const codexHome = join(home, "codex");
+  const outDir = join(home, "reports");
+  const olderPath = join(claudeHome, "projects", "repo", "older.jsonl");
+  const newerPath = join(claudeHome, "projects", "repo", "newer.jsonl");
+  const logs = [];
+  const originalLog = console.log;
+
+  try {
+    process.env.HOME = home;
+    process.env.CLAUDE_HOME = claudeHome;
+    process.env.CODEX_HOME = codexHome;
+    await mkdir(join(claudeHome, "projects", "repo"), { recursive: true });
+    await mkdir(codexHome, { recursive: true });
+    await writeFile(olderPath, claudeTurn("2026-05-17T09:00:00.000Z", "explain older history", 100, 10), "utf8");
+    await writeFile(newerPath, claudeTurn("2026-05-18T09:00:00.000Z", "explain newer history", 200, 20), "utf8");
+    await utimes(olderPath, new Date("2026-05-17T09:00:00.000Z"), new Date("2026-05-17T09:00:00.000Z"));
+    await utimes(newerPath, new Date("2026-05-18T09:00:00.000Z"), new Date("2026-05-18T09:00:00.000Z"));
+
+    console.log = (message) => {
+      logs.push(String(message));
+    };
+
+    await runExport(["--json", "--all-sessions", "--out", outDir]);
+
+    assert.deepEqual(logs, [
+      "exported 2 prompts",
+      `  → ${join(outDir, "tokenwatch-2026-05-17.json")}`
+    ]);
+    const json = JSON.parse(await readFile(join(outDir, "tokenwatch-2026-05-17.json"), "utf8"));
+    assert.deepEqual(json.turns.map((turn) => turn.promptText), [
+      "explain older history",
+      "explain newer history"
+    ]);
+  } finally {
+    console.log = originalLog;
+    restoreEnv("HOME", originalHome);
+    restoreEnv("CODEX_HOME", originalCodexHome);
+    restoreEnv("CLAUDE_HOME", originalClaudeHome);
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
 function parsedTurn(overrides) {
   const timestamp = new Date(overrides.timestampIso);
   const usage = {
@@ -586,6 +697,54 @@ function createCodexState(path, rolloutPath) {
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `).run("thread-1", "goal-1", "export goal metadata", "active", 10000, 4321, 55, now);
   db.close();
+}
+
+function codexUserMessage(timestamp, message) {
+  return JSON.stringify({
+    timestamp,
+    type: "event_msg",
+    payload: {
+      type: "user_message",
+      message
+    }
+  });
+}
+
+function codexTokenCount(inputTokens, cachedInputTokens, outputTokens) {
+  return JSON.stringify({
+    type: "event_msg",
+    payload: {
+      type: "token_count",
+      info: {
+        last_token_usage: {
+          input_tokens: inputTokens,
+          cached_input_tokens: cachedInputTokens,
+          output_tokens: outputTokens
+        }
+      }
+    }
+  });
+}
+
+function claudeTurn(timestamp, promptText, inputTokens, outputTokens) {
+  return [
+    JSON.stringify({
+      type: "user",
+      timestamp,
+      message: { content: promptText }
+    }),
+    JSON.stringify({
+      type: "assistant",
+      timestamp,
+      message: {
+        model: "claude-haiku-4-5",
+        usage: {
+          input_tokens: inputTokens,
+          output_tokens: outputTokens
+        }
+      }
+    })
+  ].join("\n");
 }
 
 function restoreEnv(name, value) {
