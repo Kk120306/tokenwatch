@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { formatDetectionLines, formatFooterStatus, selectedFilters, shortcutLineForWidth, unselectedFilters } from "../dist/ui/App.js";
+import { formatDetectionLines, formatFooterStatus, getPromptViewport, selectedFilters, shortcutLineForWidth, unselectedFilters } from "../dist/ui/App.js";
 import { filterTurns, normalizeModel, recommendModel, summarizeModels, summarizeStats, uniqueModels } from "../dist/ui/selectors.js";
 
 const turns = [
@@ -121,6 +121,45 @@ test("TUI footer status and shortcuts stay useful in narrow terminals", () => {
   assert.match(shortcutLineForWidth(80), /\[f\/t\] Filters/);
   assert.doesNotMatch(shortcutLineForWidth(80), /Cache sort/);
   assert.match(shortcutLineForWidth(140), /Cache sort/);
+});
+
+test("TUI prompt viewport keeps the selected prompt visible in long sessions", () => {
+  const longTurns = Array.from({ length: 12 }, (_, index) => ({
+    id: index + 1,
+    contextUsagePct: index % 2 === 0 ? 0.5 : null,
+    goal: null
+  }));
+
+  const middle = getPromptViewport(longTurns, 8, null, 10);
+  assert.ok(middle.startIndex > 0);
+  assert.ok(middle.startIndex <= 8);
+  assert.ok(middle.endIndex > 8);
+  assert.ok(middle.endIndex < longTurns.length);
+  assert.equal(middle.hiddenBefore, middle.startIndex);
+  assert.equal(middle.hiddenAfter, longTurns.length - middle.endIndex);
+
+  const top = getPromptViewport(longTurns, 0, null, 10);
+  assert.equal(top.startIndex, 0);
+  assert.ok(top.endIndex > 0);
+
+  const bottom = getPromptViewport(longTurns, longTurns.length - 1, null, 10);
+  assert.ok(bottom.startIndex < longTurns.length - 1);
+  assert.equal(bottom.endIndex, longTurns.length);
+});
+
+test("TUI prompt viewport accounts for expanded prompt height", () => {
+  const longTurns = Array.from({ length: 6 }, (_, index) => ({
+    id: index + 1,
+    contextUsagePct: null,
+    goal: index === 2 ? { goalId: "goal", objective: "", status: "active", tokenBudget: null, tokensUsed: 1, timeUsedSeconds: 1 } : null
+  }));
+
+  const collapsed = getPromptViewport(longTurns, 2, null, 12);
+  const expanded = getPromptViewport(longTurns, 2, 3, 12);
+
+  assert.ok(collapsed.endIndex - collapsed.startIndex > expanded.endIndex - expanded.startIndex);
+  assert.ok(expanded.startIndex <= 2);
+  assert.ok(expanded.endIndex > 2);
 });
 
 test("TUI prompts stay flat by timestamp and model rendering falls back to unknown", () => {

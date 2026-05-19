@@ -245,6 +245,7 @@ export default function App({
             maxTurnCost={maxTurnCost}
             expandedTurnId={expandedTurnId}
             selectedTurnIndex={selectedTurnIndex}
+            viewportHeight={contentHeight}
             showTokens={showTokens}
           />
         ) : activeView === "models" ? (
@@ -418,31 +419,45 @@ function PromptsView({
   maxTurnCost,
   expandedTurnId,
   selectedTurnIndex,
+  viewportHeight,
   showTokens
 }: {
   turns: readonly ParsedTurn[];
   maxTurnCost: number;
   expandedTurnId: number | null;
   selectedTurnIndex: number;
+  viewportHeight: number;
   showTokens: boolean;
 }): React.JSX.Element {
   if (turns.length === 0) {
     return <Text dimColor>No prompts match the current filters. Press f or t to adjust filters.</Text>;
   }
 
+  const viewport = getPromptViewport(turns, selectedTurnIndex, expandedTurnId, viewportHeight);
+  const visibleTurns = turns.slice(viewport.startIndex, viewport.endIndex);
+
   return (
     <Box flexDirection="column">
-      {turns.map((turn, index) => (
+      {viewport.hiddenBefore > 0 ? (
+        <Text dimColor>  ↑ {viewport.hiddenBefore} earlier prompt{viewport.hiddenBefore === 1 ? "" : "s"}</Text>
+      ) : null}
+      {visibleTurns.map((turn, index) => {
+        const absoluteIndex = viewport.startIndex + index;
+        return (
         <PromptRow
           key={turn.id}
           turn={turn}
-          displayIndex={index + 1}
-          selected={index === selectedTurnIndex}
+          displayIndex={absoluteIndex + 1}
+          selected={absoluteIndex === selectedTurnIndex}
           expanded={expandedTurnId === turn.id}
           maxTurnCost={maxTurnCost}
           showTokens={showTokens}
         />
-      ))}
+        );
+      })}
+      {viewport.hiddenAfter > 0 ? (
+        <Text dimColor>  ↓ {viewport.hiddenAfter} later prompt{viewport.hiddenAfter === 1 ? "" : "s"}</Text>
+      ) : null}
     </Box>
   );
 }
@@ -904,6 +919,83 @@ function formatHighestContextTurn(turn: ParsedTurn | null, turns: readonly Parse
   const index = Math.max(0, turns.findIndex((candidate) => candidate.id === turn.id)) + 1;
   const warning = turn.contextUsagePct > 0.9 ? "  ⚠ nearly full" : "";
   return `#${index}  ${formatPercent(turn.contextUsagePct)}${warning}`;
+}
+
+interface PromptViewport {
+  startIndex: number;
+  endIndex: number;
+  hiddenBefore: number;
+  hiddenAfter: number;
+}
+
+export function getPromptViewport(
+  turns: readonly ParsedTurn[],
+  selectedTurnIndex: number,
+  expandedTurnId: number | null,
+  viewportHeight: number
+): PromptViewport {
+  if (turns.length === 0) {
+    return {
+      startIndex: 0,
+      endIndex: 0,
+      hiddenBefore: 0,
+      hiddenAfter: 0
+    };
+  }
+
+  const selectedIndex = clamp(selectedTurnIndex, 0, turns.length - 1);
+  const reservedIndicatorLines = 2;
+  const rowLineBudget = Math.max(1, Math.floor(viewportHeight) - reservedIndicatorLines);
+  let startIndex = selectedIndex;
+  let endIndex = selectedIndex + 1;
+  let usedLines = promptRowLineCount(turns[selectedIndex], expandedTurnId);
+  const preferredLinesBeforeSelected = Math.floor(rowLineBudget / 2);
+
+  while (
+    startIndex > 0 &&
+    usedLines < preferredLinesBeforeSelected
+  ) {
+    const nextLines = promptRowLineCount(turns[startIndex - 1], expandedTurnId);
+    if (usedLines + nextLines > rowLineBudget) {
+      break;
+    }
+    startIndex -= 1;
+    usedLines += nextLines;
+  }
+
+  while (endIndex < turns.length) {
+    const nextLines = promptRowLineCount(turns[endIndex], expandedTurnId);
+    if (usedLines + nextLines > rowLineBudget) {
+      break;
+    }
+    endIndex += 1;
+    usedLines += nextLines;
+  }
+
+  while (startIndex > 0) {
+    const nextLines = promptRowLineCount(turns[startIndex - 1], expandedTurnId);
+    if (usedLines + nextLines > rowLineBudget) {
+      break;
+    }
+    startIndex -= 1;
+    usedLines += nextLines;
+  }
+
+  return {
+    startIndex,
+    endIndex,
+    hiddenBefore: startIndex,
+    hiddenAfter: turns.length - endIndex
+  };
+}
+
+function promptRowLineCount(turn: ParsedTurn, expandedTurnId: number | null): number {
+  const baseLines = 2;
+  const contextLines = typeof turn.contextUsagePct === "number" ? 1 : 0;
+  const expandedLines = expandedTurnId === turn.id
+    ? 4 + (turn.goal ? 1 : 0)
+    : 0;
+  return baseLines + contextLines + expandedLines;
 }
 
 function sortPromptTurns(turns: readonly ParsedTurn[], sortMode: PromptSortMode): ParsedTurn[] {
